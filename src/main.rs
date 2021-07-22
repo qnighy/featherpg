@@ -1,5 +1,6 @@
 use bstr::{BString, ByteSlice};
 use std::collections::HashMap;
+use thiserror::Error;
 use tokio::io::{self, AsyncReadExt, AsyncWriteExt, BufReader, BufWriter};
 use tokio::net::TcpListener;
 
@@ -7,8 +8,14 @@ const SSL_REQUEST_VERSION: &[u8] = b"\x04\xD2\x16\x2F";
 const GSSENC_REQUEST_VERSION: &[u8] = b"\x04\xD2\x16\x30";
 const PROTOCOL_VERSION: &[u8] = b"\x00\x03\x00\x00";
 
+#[derive(Debug, Error)]
+pub enum PgError {
+    #[error("{0}")]
+    Io(#[from] io::Error),
+}
+
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<(), PgError> {
     env_logger::init();
 
     let listener = TcpListener::bind("127.0.0.1:5433").await?;
@@ -48,7 +55,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             reader.read(&mut [0; 16]).await?; // TODO: remove it later
 
-            Ok(()) as Result<(), Box<dyn std::error::Error + Send + Sync>>
+            Ok(()) as Result<(), PgError>
         });
     }
 }
