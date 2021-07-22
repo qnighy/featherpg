@@ -37,6 +37,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             };
             log::debug!("params = {:?}", params);
 
+            // AuthenticationOk
+            writer
+                .write_all(b"R\x00\x00\x00\x08\x00\x00\x00\x00")
+                .await?;
+
+            // ReadyForQuery
+            writer.write_all(b"Z\x00\x00\x00\x05I").await?;
+            writer.flush().await?;
+
+            reader.read(&mut [0; 16]).await?; // TODO: remove it later
+
             Ok(()) as Result<(), Box<dyn std::error::Error + Send + Sync>>
         });
     }
