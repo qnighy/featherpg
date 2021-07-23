@@ -1,20 +1,15 @@
 use bstr::{BString, ByteSlice};
 use std::collections::HashMap;
-use thiserror::Error;
 use tokio::io::{self, AsyncReadExt, AsyncWriteExt, BufReader, BufWriter};
 use tokio::net::TcpListener;
+
+use crate::error::PgError;
+
+mod error;
 
 const SSL_REQUEST_VERSION: &[u8] = b"\x04\xD2\x16\x2F";
 const GSSENC_REQUEST_VERSION: &[u8] = b"\x04\xD2\x16\x30";
 const PROTOCOL_VERSION: &[u8] = b"\x00\x03\x00\x00";
-
-#[derive(Debug, Error)]
-pub enum PgError {
-    #[error("{0}")]
-    Io(#[from] io::Error),
-    #[error("Invalid message")]
-    InvalidMessage,
-}
 
 #[tokio::main]
 async fn main() -> Result<(), PgError> {
