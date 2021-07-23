@@ -9,7 +9,7 @@ const CANCEL_REQUEST_VERSION: (u16, u16) = (1234, 5678);
 const SSL_REQUEST_VERSION: (u16, u16) = (1234, 5679);
 const GSSENC_REQUEST_VERSION: (u16, u16) = (1234, 5680);
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ClientStartupMessage {
     StartupMessage(StartupPayload),
     CancelRequest(CancelPayload),
@@ -17,13 +17,13 @@ pub enum ClientStartupMessage {
     GssEncRequest,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StartupPayload {
     pub version: (u16, u16),
     pub params: HashMap<BString, BString>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CancelPayload {
     pub process_id: u32,
     pub secret_key: u32,
@@ -37,6 +37,7 @@ impl ClientStartupMessage {
         }
         let mut buf = vec![0_u8; len - 4];
         r.read_exact(&mut buf).await?;
+        log::debug!("startup; len = {:#x}, buf = {:?}", len, buf.as_bstr());
         if buf.len() < 4 {
             return Err(PgError::InvalidMessage);
         }
@@ -92,4 +93,47 @@ fn parse_params(mut s: &[u8]) -> Result<HashMap<BString, BString>, PgError> {
         return Err(PgError::InvalidMessage);
     }
     Ok(params)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use maplit::hashmap;
+    use std::io::Cursor;
+
+    #[tokio::test]
+    async fn test_read_startup1() {
+        let mut src = Cursor::new(b"\x00\x00\x00\x08\x04\xD2\x16\x2F");
+        let msg = ClientStartupMessage::read_from(&mut src).await.unwrap();
+        assert_eq!(msg, ClientStartupMessage::SslRequest);
+        assert_eq!(src.position(), src.get_ref().len() as u64);
+    }
+
+    #[tokio::test]
+    async fn test_read_startup2() {
+        let mut src = Cursor::new(b"\x00\x00\x00\x52\x00\x03\x00\x00user\0qnighy\0database\0database\0application_name\0psql\0client_encoding\0UTF8\0\0");
+        let msg = ClientStartupMessage::read_from(&mut src).await.unwrap();
+        assert_eq!(
+            msg,
+            ClientStartupMessage::StartupMessage(StartupPayload {
+                version: (3, 0),
+                params: hashmap![
+                    B("client_encoding") => B("UTF8"),
+                    B("database") => B("database"),
+                    B("user") => B("qnighy"),
+                    B("application_name") => B("psql"),
+                ],
+            })
+        );
+        assert_eq!(src.position(), src.get_ref().len() as u64);
+    }
+
+    #[allow(non_snake_case)]
+    fn B<S>(s: S) -> BString
+    where
+        BString: From<S>,
+    {
+        BString::from(s)
+    }
 }
