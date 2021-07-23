@@ -142,6 +142,9 @@ impl ClientMessage {
 pub enum ServerMessage {
     AuthenticationOk,
     ReadyForQuery(TransactionStatus),
+    RowDescription(Vec<ColumnDescription>),
+    DataRow(Vec<Option<BString>>),
+    CommandComplete(BString),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -161,12 +164,26 @@ impl From<TransactionStatus> for u8 {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ColumnDescription {
+    pub name: BString,
+    pub table_oid: u32,
+    pub column_attr_no: u16,
+    pub data_type_oid: u32,
+    pub data_type_size: u16,
+    pub type_modifier: u32,
+    pub format_code: u16,
+}
+
 impl ServerMessage {
     pub fn msg_type(&self) -> u8 {
         use ServerMessage::*;
         match self {
             AuthenticationOk => b'R',
             ReadyForQuery(_) => b'Z',
+            RowDescription(_) => b'T',
+            DataRow(_) => b'D',
+            CommandComplete(_) => b'C',
         }
     }
     pub fn byte_len(&self) -> usize {
@@ -174,6 +191,25 @@ impl ServerMessage {
         match self {
             AuthenticationOk => 4,
             ReadyForQuery(_) => 1,
+            RowDescription(columns) => {
+                2 + columns
+                    .iter()
+                    .map(|column| 19 + column.name.len())
+                    .sum::<usize>()
+            }
+            DataRow(fields) => {
+                2 + fields
+                    .iter()
+                    .map(|field| {
+                        if let Some(field) = field {
+                            4 + field.len()
+                        } else {
+                            4
+                        }
+                    })
+                    .sum::<usize>()
+            }
+            CommandComplete(tag) => tag.len() + 1,
         }
     }
     pub async fn write_to<W: AsyncWrite + Unpin>(&self, w: &mut W) -> Result<(), PgError> {
@@ -187,12 +223,62 @@ impl ServerMessage {
         match self {
             AuthenticationOk => w.write_all(b"\x00\x00\x00\x00").await?,
             &ReadyForQuery(s) => w.write_all(&[u8::from(s)]).await?,
+            RowDescription(columns) => {
+                w.write_all(&(columns.len() as u16).to_be_bytes()).await?;
+                for column in columns {
+                    w.write_all(column.name.as_bytes()).await?;
+                    w.write_all(b"\0").await?;
+                    w.write_all(&column.table_oid.to_be_bytes()).await?;
+                    w.write_all(&column.column_attr_no.to_be_bytes()).await?;
+                    w.write_all(&column.data_type_oid.to_be_bytes()).await?;
+                    w.write_all(&column.data_type_size.to_be_bytes()).await?;
+                    w.write_all(&column.type_modifier.to_be_bytes()).await?;
+                    w.write_all(&column.format_code.to_be_bytes()).await?;
+                }
+            }
+            DataRow(fields) => {
+                w.write_all(&(fields.len() as u16).to_be_bytes()).await?;
+                for field in fields {
+                    if let Some(field) = field {
+                        w.write_all(&(field.len() as u32).to_be_bytes()).await?;
+                        w.write_all(field.as_bytes()).await?;
+                    } else {
+                        w.write_all(b"\xFF\xFF\xFF\xFF").await?;
+                    };
+                }
+            }
+            CommandComplete(tag) => {
+                w.write_all(tag.as_bytes()).await?;
+                w.write_all(b"\0").await?;
+            }
         }
         Ok(())
     }
     fn validate(&self) {
-        // TODO
+        use ServerMessage::*;
+        match self {
+            AuthenticationOk | ReadyForQuery(_) => {}
+            RowDescription(columns) => {
+                assert!(columns.len() <= u16::MAX as usize);
+                for column in columns {
+                    assert!(is_null_free(&column.name));
+                }
+            }
+            DataRow(fields) => {
+                assert!(fields.len() <= u16::MAX as usize);
+                for field in fields {
+                    if let Some(field) = field {
+                        assert!(field.len() < u32::MAX as usize);
+                    }
+                }
+            }
+            CommandComplete(tag) => assert!(is_null_free(tag)),
+        }
     }
+}
+
+fn is_null_free(s: &[u8]) -> bool {
+    s.iter().all(|&ch| ch != b'\0')
 }
 
 #[cfg(test)]

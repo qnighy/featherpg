@@ -1,8 +1,11 @@
+use bstr::{BString, ByteSlice};
 use tokio::io::{self, AsyncWriteExt, BufReader, BufWriter};
 use tokio::net::TcpListener;
 
 use crate::error::PgError;
-use crate::message::{ClientMessage, ClientStartupMessage, ServerMessage, TransactionStatus};
+use crate::message::{
+    ClientMessage, ClientStartupMessage, ColumnDescription, ServerMessage, TransactionStatus,
+};
 
 mod error;
 mod message;
@@ -49,9 +52,36 @@ async fn main() -> Result<(), PgError> {
                 let msg = ClientMessage::read_from(&mut reader).await?;
 
                 match msg {
-                    ClientMessage::Query(_) => todo!("ClientMessage::Query"),
+                    ClientMessage::Query(q) => {
+                        if q.as_bytes() == b"SELECT 1;" {
+                            ServerMessage::RowDescription(vec![ColumnDescription {
+                                name: BString::from("?column?"),
+                                table_oid: 0,
+                                column_attr_no: 0,
+                                data_type_oid: 23,
+                                data_type_size: 4,
+                                type_modifier: 0,
+                                format_code: 0,
+                            }])
+                            .write_to(&mut writer)
+                            .await?;
+                            ServerMessage::DataRow(vec![Some(BString::from("1"))])
+                                .write_to(&mut writer)
+                                .await?;
+                            ServerMessage::CommandComplete(BString::from("SELECT 1"))
+                                .write_to(&mut writer)
+                                .await?;
+                        } else {
+                            todo!("ClientMessage::Query({:?})", q);
+                        }
+                    }
                     ClientMessage::Terminate => break,
                 }
+
+                ServerMessage::ReadyForQuery(TransactionStatus::Idle)
+                    .write_to(&mut writer)
+                    .await?;
+                writer.flush().await?;
             }
 
             Ok(()) as Result<(), PgError>
