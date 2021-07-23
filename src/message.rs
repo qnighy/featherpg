@@ -96,6 +96,49 @@ fn parse_params(mut s: &[u8]) -> Result<HashMap<BString, BString>, PgError> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ClientMessage {
+    Query(BString),
+    Terminate,
+}
+
+impl ClientMessage {
+    pub async fn read_from<R: AsyncRead + Unpin>(r: &mut R) -> Result<Self, PgError> {
+        let msg_type = r.read_u8().await?;
+        let len = r.read_u32().await? as usize;
+        if len < 4 {
+            return Err(PgError::InvalidMessage);
+        }
+        let mut buf = vec![0_u8; len - 4];
+        r.read_exact(&mut buf).await?;
+        log::debug!(
+            "msg_type = {:?}, len = {:#x}, buf = {:?}",
+            msg_type as char,
+            len,
+            buf.as_bstr()
+        );
+        match msg_type {
+            b'Q' => {
+                if buf.len() == 0
+                    || buf[buf.len() - 1] != b'\0'
+                    || buf[..buf.len() - 1].iter().any(|&ch| ch == b'\0')
+                {
+                    return Err(PgError::InvalidMessage);
+                }
+                let query = BString::from(&buf[..buf.len() - 1]);
+                Ok(ClientMessage::Query(query))
+            }
+            b'X' => {
+                if buf.len() != 0 {
+                    return Err(PgError::InvalidMessage);
+                }
+                Ok(ClientMessage::Terminate)
+            }
+            _ => return Err(PgError::InvalidMessage),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ServerMessage {
     AuthenticationOk,
     ReadyForQuery(TransactionStatus),

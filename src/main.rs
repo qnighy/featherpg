@@ -1,8 +1,8 @@
-use tokio::io::{self, AsyncReadExt, AsyncWriteExt, BufReader, BufWriter};
+use tokio::io::{self, AsyncWriteExt, BufReader, BufWriter};
 use tokio::net::TcpListener;
 
 use crate::error::PgError;
-use crate::message::{ClientStartupMessage, ServerMessage, TransactionStatus};
+use crate::message::{ClientMessage, ClientStartupMessage, ServerMessage, TransactionStatus};
 
 mod error;
 mod message;
@@ -45,7 +45,14 @@ async fn main() -> Result<(), PgError> {
                 .await?;
             writer.flush().await?;
 
-            reader.read(&mut [0; 16]).await?; // TODO: remove it later
+            loop {
+                let msg = ClientMessage::read_from(&mut reader).await?;
+
+                match msg {
+                    ClientMessage::Query(_) => todo!("ClientMessage::Query"),
+                    ClientMessage::Terminate => break,
+                }
+            }
 
             Ok(()) as Result<(), PgError>
         });
