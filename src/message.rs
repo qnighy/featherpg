@@ -186,6 +186,24 @@ mod tests {
         assert_eq!(src.position(), src.get_ref().len() as u64);
     }
 
+    #[tokio::test]
+    async fn test_write_server1() {
+        let msg = ServerMessage::AuthenticationOk;
+        assert_eq!(to_bytes(&msg).await, b"R\x00\x00\x00\x08\x00\x00\x00\x00");
+    }
+
+    #[tokio::test]
+    async fn test_write_server2() {
+        let msg = ServerMessage::ReadyForQuery(TransactionStatus::Idle);
+        assert_eq!(to_bytes(&msg).await, b"Z\x00\x00\x00\x05I");
+    }
+
+    async fn to_bytes(msg: &ServerMessage) -> Vec<u8> {
+        let mut dst = Vec::<u8>::new();
+        msg.write_to(&mut dst).await.unwrap();
+        dst
+    }
+
     #[allow(non_snake_case)]
     fn B<S>(s: S) -> BString
     where
