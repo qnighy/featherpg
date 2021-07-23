@@ -2,7 +2,7 @@ use tokio::io::{self, AsyncReadExt, AsyncWriteExt, BufReader, BufWriter};
 use tokio::net::TcpListener;
 
 use crate::error::PgError;
-use crate::message::ClientStartupMessage;
+use crate::message::{ClientStartupMessage, ServerMessage, TransactionStatus};
 
 mod error;
 mod message;
@@ -37,13 +37,12 @@ async fn main() -> Result<(), PgError> {
             };
             log::debug!("params = {:?}", startup.params);
 
-            // AuthenticationOk
-            writer
-                .write_all(b"R\x00\x00\x00\x08\x00\x00\x00\x00")
+            ServerMessage::AuthenticationOk
+                .write_to(&mut writer)
                 .await?;
-
-            // ReadyForQuery
-            writer.write_all(b"Z\x00\x00\x00\x05I").await?;
+            ServerMessage::ReadyForQuery(TransactionStatus::Idle)
+                .write_to(&mut writer)
+                .await?;
             writer.flush().await?;
 
             reader.read(&mut [0; 16]).await?; // TODO: remove it later

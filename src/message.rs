@@ -1,7 +1,7 @@
 use bstr::{BString, ByteSlice};
 use std::collections::HashMap;
 use std::convert::TryInto;
-use tokio::io::{AsyncRead, AsyncReadExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 use crate::error::PgError;
 
@@ -93,6 +93,63 @@ fn parse_params(mut s: &[u8]) -> Result<HashMap<BString, BString>, PgError> {
         return Err(PgError::InvalidMessage);
     }
     Ok(params)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ServerMessage {
+    AuthenticationOk,
+    ReadyForQuery(TransactionStatus),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TransactionStatus {
+    Idle,
+    InTransaction,
+    InFailedTransaction,
+}
+
+impl From<TransactionStatus> for u8 {
+    fn from(s: TransactionStatus) -> Self {
+        match s {
+            TransactionStatus::Idle => b'I',
+            TransactionStatus::InTransaction => b'T',
+            TransactionStatus::InFailedTransaction => b'F',
+        }
+    }
+}
+
+impl ServerMessage {
+    pub fn msg_type(&self) -> u8 {
+        use ServerMessage::*;
+        match self {
+            AuthenticationOk => b'R',
+            ReadyForQuery(_) => b'Z',
+        }
+    }
+    pub fn byte_len(&self) -> usize {
+        use ServerMessage::*;
+        match self {
+            AuthenticationOk => 4,
+            ReadyForQuery(_) => 1,
+        }
+    }
+    pub async fn write_to<W: AsyncWrite + Unpin>(&self, w: &mut W) -> Result<(), PgError> {
+        use ServerMessage::*;
+
+        self.validate();
+
+        w.write_all(&[self.msg_type()]).await?;
+        w.write_all(&(self.byte_len() as u32 + 4).to_be_bytes())
+            .await?;
+        match self {
+            AuthenticationOk => w.write_all(b"\x00\x00\x00\x00").await?,
+            &ReadyForQuery(s) => w.write_all(&[u8::from(s)]).await?,
+        }
+        Ok(())
+    }
+    fn validate(&self) {
+        // TODO
+    }
 }
 
 #[cfg(test)]
