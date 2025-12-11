@@ -11,4 +11,5 @@ pub(crate) struct Token {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) enum TokenKind {
     Identifier(String),
+    Unknown,
 }
