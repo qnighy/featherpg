@@ -3,7 +3,10 @@
 // and may differ from the spec in many ways.
 // A thorough review is needed once the rough implementation is done.
 
-use crate::token::Token;
+use crate::{
+    pos::CodeRange,
+    token::{Token, TokenKind},
+};
 
 pub(crate) fn lex(src: &str) -> Vec<Token> {
     let mut lexer = Lexer::new(src);
@@ -43,23 +46,23 @@ impl<'a> Lexer<'a> {
                 self.pos += 1;
             }
             let identifier = &self.src[start..self.pos];
-            let range = crate::pos::CodeRange {
+            let range = CodeRange {
                 start,
                 end: self.pos,
             };
             Some(Token {
-                kind: crate::token::TokenKind::Identifier(identifier.to_string()),
+                kind: TokenKind::Identifier(identifier.to_string()),
                 range,
             })
         } else {
             // Unknown token
             self.pos += 1;
-            let range = crate::pos::CodeRange {
+            let range = CodeRange {
                 start,
                 end: self.pos,
             };
             Some(Token {
-                kind: crate::token::TokenKind::Unknown,
+                kind: TokenKind::Unknown,
                 range,
             })
         }
