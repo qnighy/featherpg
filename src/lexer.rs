@@ -3,6 +3,10 @@
 // and may differ from the spec in many ways.
 // A thorough review is needed once the rough implementation is done.
 
+use std::borrow::Cow;
+
+use num_bigint::BigInt;
+
 use crate::{
     pos::CodeRange,
     token::{Token, TokenKind},
@@ -54,6 +58,32 @@ impl<'a> Lexer<'a> {
                 kind: TokenKind::Identifier(identifier.to_ascii_lowercase()),
                 range,
             })
+        } else if self.src.as_bytes()[self.pos].is_ascii_digit() {
+            while self.pos < self.src.len()
+                && Self::is_ident_continue(self.src.as_bytes()[self.pos])
+            {
+                self.pos += 1;
+            }
+            let s = &self.src[start..self.pos];
+            if Self::is_decimal_integer(s) {
+                // TODO: check against invalid underscore occurrences
+                let value = Self::remove_underscores(s).parse::<BigInt>().unwrap();
+                Some(Token {
+                    kind: TokenKind::Integer(value),
+                    range: CodeRange {
+                        start,
+                        end: self.pos,
+                    },
+                })
+            } else {
+                return Some(Token {
+                    kind: TokenKind::Unknown,
+                    range: CodeRange {
+                        start,
+                        end: self.pos,
+                    },
+                });
+            }
         } else {
             // Unknown token
             self.pos += 1;
@@ -74,6 +104,19 @@ impl<'a> Lexer<'a> {
 
     fn is_ident_continue(b: u8) -> bool {
         b.is_ascii_alphanumeric() || b == b'_' || b == b'$' || b >= b'\x80'
+    }
+
+    fn is_decimal_integer(s: &str) -> bool {
+        s.bytes().all(|b| b.is_ascii_digit() || b == b'_')
+    }
+
+    fn remove_underscores(s: &str) -> Cow<str> {
+        if s.contains('_') {
+            let filtered: String = s.chars().filter(|&c| c != '_').collect();
+            Cow::Owned(filtered)
+        } else {
+            Cow::Borrowed(s)
+        }
     }
 
     fn skip_whitespace(&mut self) {
@@ -215,6 +258,45 @@ mod tests {
             vec![tok(
                 TokenKind::Identifier("föo".to_string()),
                 pos(src, "föo", 0)
+            )]
+        );
+    }
+
+    #[test]
+    fn test_lex_integer_simple() {
+        let src = "12345";
+        let tokens = lex(src);
+        assert_eq!(
+            tokens,
+            vec![tok(
+                TokenKind::Integer(BigInt::from(12345)),
+                pos(src, "12345", 0)
+            )]
+        );
+    }
+
+    #[test]
+    fn test_lex_integer_decimal_leading_zeros() {
+        let src = "00012345";
+        let tokens = lex(src);
+        assert_eq!(
+            tokens,
+            vec![tok(
+                TokenKind::Integer(BigInt::from(12345)),
+                pos(src, "00012345", 0)
+            )]
+        );
+    }
+
+    #[test]
+    fn test_lex_integer_underscores() {
+        let src = "12_345_678";
+        let tokens = lex(src);
+        assert_eq!(
+            tokens,
+            vec![tok(
+                TokenKind::Integer(BigInt::from(12345678)),
+                pos(src, "12_345_678", 0)
             )]
         );
     }
