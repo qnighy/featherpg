@@ -51,7 +51,7 @@ impl<'a> Lexer<'a> {
                 end: self.pos,
             };
             Some(Token {
-                kind: TokenKind::Identifier(identifier.to_string()),
+                kind: TokenKind::Identifier(identifier.to_ascii_lowercase()),
                 range,
             })
         } else {
@@ -135,6 +135,34 @@ mod tests {
             vec![tok(
                 TokenKind::Identifier("foo".to_string()),
                 pos(src, "foo", 0)
+            )]
+        );
+    }
+
+    #[test]
+    fn test_lex_identifier_with_ascii_uppercase() {
+        let src = "FoO";
+        let tokens = lex(src);
+        assert_eq!(
+            tokens,
+            vec![tok(
+                TokenKind::Identifier("foo".to_string()),
+                pos(src, "FoO", 0)
+            )]
+        );
+    }
+
+    #[test]
+    fn test_lex_identifier_with_unicode_uppercase() {
+        // Multibyte case folding is not implemented yet. See:
+        // https://github.com/postgres/postgres/blob/REL_18_1/src/backend/parser/scansup.c#L55-L63
+        let src = "FÖO";
+        let tokens = lex(src);
+        assert_eq!(
+            tokens,
+            vec![tok(
+                TokenKind::Identifier("fÖo".to_string()),
+                pos(src, "FÖO", 0)
             )]
         );
     }
