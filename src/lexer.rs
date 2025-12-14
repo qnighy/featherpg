@@ -3,7 +3,7 @@
 // and may differ from the spec in many ways.
 // A thorough review is needed once the rough implementation is done.
 
-use std::borrow::Cow;
+use std::{borrow::Cow, collections::HashMap, sync::LazyLock};
 
 use num_bigint::BigInt;
 
@@ -27,11 +27,12 @@ pub(crate) fn lex(src: &str) -> Vec<Token> {
 struct Lexer<'a> {
     src: &'a str,
     pos: usize,
+    keyword_map: &'static HashMap<&'static str, TokenKind>,
 }
 
 impl<'a> Lexer<'a> {
     fn new(src: &'a str) -> Self {
-        Self { src, pos: 0 }
+        Self { src, pos: 0, keyword_map: &KEYWORD_MAP }
     }
 
     fn next_token(&mut self) -> Option<Token> {
@@ -50,14 +51,22 @@ impl<'a> Lexer<'a> {
                 self.pos += 1;
             }
             let identifier = &self.src[start..self.pos];
+            let identifier = identifier.to_ascii_lowercase();
             let range = CodeRange {
                 start,
                 end: self.pos,
             };
-            Some(Token {
-                kind: TokenKind::Identifier(identifier.to_ascii_lowercase()),
-                range,
-            })
+            if let Some(keyword_kind) = self.keyword_map.get(&identifier[..]) {
+                Some(Token {
+                    kind: keyword_kind.clone(),
+                    range,
+                })
+            } else {
+                Some(Token {
+                    kind: TokenKind::Identifier(identifier),
+                    range,
+                })
+            }
         } else if self.src.as_bytes()[self.pos].is_ascii_digit() {
             while self.pos < self.src.len()
                 && Self::is_ident_continue(self.src.as_bytes()[self.pos])
@@ -130,6 +139,12 @@ impl<'a> Lexer<'a> {
         }
     }
 }
+
+static KEYWORD_MAP: LazyLock<HashMap<&'static str, TokenKind>> = LazyLock::new(|| vec![
+    ("select", TokenKind::KeywordSelect),
+]
+    .into_iter()
+    .collect::<HashMap<_, _>>());
 
 #[cfg(test)]
 mod tests {
@@ -259,6 +274,26 @@ mod tests {
                 TokenKind::Identifier("föo".to_string()),
                 pos(src, "föo", 0)
             )]
+        );
+    }
+
+    #[test]
+    fn test_lex_keyword_simple() {
+        let src = "select";
+        let tokens = lex(src);
+        assert_eq!(
+            tokens,
+            vec![tok(TokenKind::KeywordSelect, pos(src, "select", 0))]
+        );
+    }
+
+    #[test]
+    fn test_lex_keyword_case_fold() {
+        let src = "SeLeCt";
+        let tokens = lex(src);
+        assert_eq!(
+            tokens,
+            vec![tok(TokenKind::KeywordSelect, pos(src, "SeLeCt", 0))]
         );
     }
 
