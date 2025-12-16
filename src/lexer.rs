@@ -128,7 +128,7 @@ impl<'a> Lexer<'a> {
         s.bytes().all(|b| b.is_ascii_digit() || b == b'_')
     }
 
-    fn remove_underscores(s: &str) -> Cow<str> {
+    fn remove_underscores(s: &str) -> Cow<'_, str> {
         if s.contains('_') {
             let filtered: String = s.chars().filter(|&c| c != '_').collect();
             Cow::Owned(filtered)
