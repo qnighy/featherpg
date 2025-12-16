@@ -24,18 +24,22 @@ pub(crate) fn lex(src: &str) -> Vec<Token> {
 }
 
 #[derive(Debug)]
-struct Lexer<'a> {
+pub(crate) struct Lexer<'a> {
     src: &'a str,
     pos: usize,
     keyword_map: &'static HashMap<&'static str, TokenKind>,
 }
 
 impl<'a> Lexer<'a> {
-    fn new(src: &'a str) -> Self {
-        Self { src, pos: 0, keyword_map: &KEYWORD_MAP }
+    pub(crate) fn new(src: &'a str) -> Self {
+        Self {
+            src,
+            pos: 0,
+            keyword_map: &KEYWORD_MAP,
+        }
     }
 
-    fn next_token(&mut self) -> Option<Token> {
+    pub(crate) fn next_token(&mut self) -> Option<Token> {
         self.skip_whitespace();
 
         if self.pos >= self.src.len() {
@@ -56,6 +60,11 @@ impl<'a> Lexer<'a> {
                 start,
                 end: self.pos,
             };
+            // TODO: handle keyword contexts correctly, such as:
+            //
+            // - statement/expression context
+            // - function/type context
+            // - implicit renaming context (e.g. `SELECT 1 x`)
             if let Some(keyword_kind) = self.keyword_map.get(&identifier[..]) {
                 Some(Token {
                     kind: keyword_kind.clone(),
@@ -140,11 +149,11 @@ impl<'a> Lexer<'a> {
     }
 }
 
-static KEYWORD_MAP: LazyLock<HashMap<&'static str, TokenKind>> = LazyLock::new(|| vec![
-    ("select", TokenKind::KeywordSelect),
-]
-    .into_iter()
-    .collect::<HashMap<_, _>>());
+static KEYWORD_MAP: LazyLock<HashMap<&'static str, TokenKind>> = LazyLock::new(|| {
+    vec![("select", TokenKind::KeywordSelect)]
+        .into_iter()
+        .collect::<HashMap<_, _>>()
+});
 
 #[cfg(test)]
 mod tests {
