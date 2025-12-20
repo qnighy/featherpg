@@ -27,7 +27,11 @@ pub(crate) fn lex_with_diags(src: &str, diags: &mut CodeDiagnostics) -> Vec<Toke
     let mut lexer = Lexer::new(src);
     let mut tokens = Vec::new();
 
-    while let Some(token) = lexer.next_token(diags) {
+    loop {
+        let token = lexer.next_token(diags);
+        if token.kind == TokenKind::Eof {
+            break;
+        }
         tokens.push(token);
     }
 
@@ -50,11 +54,18 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    pub(crate) fn next_token(&mut self, diags: &mut CodeDiagnostics) -> Option<Token> {
+    pub(crate) fn next_token(&mut self, diags: &mut CodeDiagnostics) -> Token {
+        let start_before_ws = self.pos;
         self.skip_whitespace();
 
         if self.pos >= self.src.len() {
-            return None;
+            return Token {
+                kind: TokenKind::Eof,
+                range: CodeRange {
+                    start: start_before_ws,
+                    end: start_before_ws,
+                },
+            };
         }
 
         let start = self.pos;
@@ -77,15 +88,15 @@ impl<'a> Lexer<'a> {
             // - function/type context
             // - implicit renaming context (e.g. `SELECT 1 x`)
             if let Some(keyword_kind) = self.keyword_map.get(&identifier[..]) {
-                Some(Token {
+                Token {
                     kind: keyword_kind.clone(),
                     range,
-                })
+                }
             } else {
-                Some(Token {
+                Token {
                     kind: TokenKind::Identifier(identifier),
                     range,
-                })
+                }
             }
         } else if self.src.as_bytes()[self.pos].is_ascii_digit() {
             while self.pos < self.src.len()
@@ -97,23 +108,23 @@ impl<'a> Lexer<'a> {
             if Self::is_decimal_integer(s) {
                 // TODO: check against invalid underscore occurrences
                 let value = Self::remove_underscores(s).parse::<BigInt>().unwrap();
-                Some(Token {
+                Token {
                     kind: TokenKind::Integer(value),
                     range: CodeRange {
                         start,
                         end: self.pos,
                     },
-                })
+                }
             } else {
                 let range = CodeRange {
                     start,
                     end: self.pos,
                 };
                 diags.add(CodeDiagnostic::UnknownToken { range });
-                return Some(Token {
+                return Token {
                     kind: TokenKind::Unknown,
                     range,
-                });
+                };
             }
         } else {
             self.pos += 1;
@@ -122,10 +133,10 @@ impl<'a> Lexer<'a> {
                 end: self.pos,
             };
             diags.add(CodeDiagnostic::UnknownToken { range });
-            Some(Token {
+            Token {
                 kind: TokenKind::Unknown,
                 range,
-            })
+            }
         }
     }
 

@@ -12,6 +12,7 @@ pub(crate) struct Token {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) enum TokenKind {
+    Eof,
     Identifier(String),
     KeywordSelect,
     Integer(BigInt),
