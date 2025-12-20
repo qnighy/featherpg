@@ -23,6 +23,7 @@ pub(crate) fn lex(src: &str) -> Result<Vec<Token>, CodeError> {
     Ok(tokens)
 }
 
+#[cfg(test)]
 pub(crate) fn lex_with_diags(src: &str, diags: &mut CodeDiagnostics) -> Vec<Token> {
     let mut lexer = Lexer::new(src);
     let mut tokens = Vec::new();

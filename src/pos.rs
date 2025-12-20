@@ -1,9 +1,10 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) struct CodeRange {
+pub struct CodeRange {
     pub start: usize,
     pub end: usize,
 }
 
+#[cfg(test)]
 pub(crate) fn pos(source: &str, needle: &str, occurrence: usize) -> CodeRange {
     let mut current = 0;
     for _ in 0..occurrence {
