@@ -1,6 +1,13 @@
 use crate::pos::CodeRange;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct StmtMultiNode {
+    /// List of statements in the top-level script, always non-empty.
+    /// For empty scripts, a single empty statement is added.
+    pub stmts: Vec<StmtNode>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct StmtNode {
     pub kind: StmtKind,
     pub range: CodeRange,

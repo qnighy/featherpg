@@ -1,5 +1,5 @@
 pub use crate::diag::{CodeDiagnostic, CodeDiagnostics, CodeError};
-pub use crate::parser::{parse, parse_with_diags};
+pub use crate::parser::{parse_stmt, parse_stmt_with_diags};
 pub use crate::pos::CodeRange;
 
 pub mod ast;

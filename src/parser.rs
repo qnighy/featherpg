@@ -1,3 +1,5 @@
+// https://github.com/postgres/postgres/blob/REL_18_1/src/backend/parser/gram.y
+
 use crate::{
     ast::{ExprKind, ExprNode, StmtKind, StmtNode},
     diag::{CodeDiagnostic, CodeDiagnostics, CodeError},
@@ -5,16 +7,16 @@ use crate::{
     token::{Token, TokenKind},
 };
 
-pub fn parse(src: &str) -> Result<StmtNode, CodeError> {
+pub fn parse_stmt(src: &str) -> Result<StmtNode, CodeError> {
     let mut diags = CodeDiagnostics::new();
-    let stmt = parse_with_diags(src, &mut diags);
+    let stmt = parse_stmt_with_diags(src, &mut diags);
     diags.check_errors()?;
     Ok(stmt)
 }
 
 // TODO: error handling
 // TODO: return statement list
-pub fn parse_with_diags(src: &str, diags: &mut CodeDiagnostics) -> StmtNode {
+pub fn parse_stmt_with_diags(src: &str, diags: &mut CodeDiagnostics) -> StmtNode {
     let mut parser = Parser::new(src);
     parser.parse_stmt_toplevel(diags)
 }
@@ -85,7 +87,7 @@ mod tests {
     #[test]
     fn test_parse_select_integer() {
         let src = "select 42";
-        let stmt = parse(src).unwrap();
+        let stmt = parse_stmt(src).unwrap();
         assert_eq!(
             stmt,
             StmtNode {
