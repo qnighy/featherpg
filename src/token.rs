@@ -16,5 +16,6 @@ pub(crate) enum TokenKind {
     Identifier(String),
     KeywordSelect,
     Integer(BigInt),
+    Semicolon,
     Unknown,
 }

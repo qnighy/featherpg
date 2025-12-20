@@ -128,15 +128,30 @@ impl<'a> Lexer<'a> {
                 };
             }
         } else {
-            self.pos += 1;
-            let range = CodeRange {
-                start,
-                end: self.pos,
-            };
-            diags.add(CodeDiagnostic::UnknownToken { range });
-            Token {
-                kind: TokenKind::Unknown,
-                range,
+            match self.src.as_bytes()[self.pos] {
+                b';' => {
+                    self.pos += 1;
+                    let range = CodeRange {
+                        start,
+                        end: self.pos,
+                    };
+                    Token {
+                        kind: TokenKind::Semicolon,
+                        range,
+                    }
+                }
+                _ => {
+                    self.pos += 1;
+                    let range = CodeRange {
+                        start,
+                        end: self.pos,
+                    };
+                    diags.add(CodeDiagnostic::UnknownToken { range });
+                    Token {
+                        kind: TokenKind::Unknown,
+                        range,
+                    }
+                }
             }
         }
     }
