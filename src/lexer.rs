@@ -7,16 +7,27 @@ use std::{borrow::Cow, collections::HashMap, sync::LazyLock};
 
 use num_bigint::BigInt;
 
+#[cfg(test)]
+use crate::diag::CodeError;
 use crate::{
+    diag::{CodeDiagnostic, CodeDiagnostics},
     pos::CodeRange,
     token::{Token, TokenKind},
 };
 
-pub(crate) fn lex(src: &str) -> Vec<Token> {
+#[cfg(test)]
+pub(crate) fn lex(src: &str) -> Result<Vec<Token>, CodeError> {
+    let mut diags = CodeDiagnostics::new();
+    let tokens = lex_with_diags(src, &mut diags);
+    diags.check_errors()?;
+    Ok(tokens)
+}
+
+pub(crate) fn lex_with_diags(src: &str, diags: &mut CodeDiagnostics) -> Vec<Token> {
     let mut lexer = Lexer::new(src);
     let mut tokens = Vec::new();
 
-    while let Some(token) = lexer.next_token() {
+    while let Some(token) = lexer.next_token(diags) {
         tokens.push(token);
     }
 
@@ -39,7 +50,7 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    pub(crate) fn next_token(&mut self) -> Option<Token> {
+    pub(crate) fn next_token(&mut self, diags: &mut CodeDiagnostics) -> Option<Token> {
         self.skip_whitespace();
 
         if self.pos >= self.src.len() {
@@ -94,21 +105,23 @@ impl<'a> Lexer<'a> {
                     },
                 })
             } else {
+                let range = CodeRange {
+                    start,
+                    end: self.pos,
+                };
+                diags.add(CodeDiagnostic::UnknownToken { range });
                 return Some(Token {
                     kind: TokenKind::Unknown,
-                    range: CodeRange {
-                        start,
-                        end: self.pos,
-                    },
+                    range,
                 });
             }
         } else {
-            // Unknown token
             self.pos += 1;
             let range = CodeRange {
                 start,
                 end: self.pos,
             };
+            diags.add(CodeDiagnostic::UnknownToken { range });
             Some(Token {
                 kind: TokenKind::Unknown,
                 range,
@@ -171,19 +184,19 @@ mod tests {
     #[test]
     fn test_lex_empty() {
         let src = "";
-        assert_eq!(lex(src), vec![]);
+        assert_eq!(lex(src).unwrap(), vec![]);
     }
 
     #[test]
     fn test_lex_whitespace_only() {
         let src = "   \n\t  ";
-        assert_eq!(lex(src), vec![]);
+        assert_eq!(lex(src).unwrap(), vec![]);
     }
 
     #[test]
     fn test_lex_whitespace_between_tokens() {
         let src = "  foo   bar  ";
-        let tokens = lex(src);
+        let tokens = lex(src).unwrap();
         assert_eq!(
             tokens,
             vec![
@@ -196,7 +209,7 @@ mod tests {
     #[test]
     fn test_lex_identifier_simple() {
         let src = "foo";
-        let tokens = lex(src);
+        let tokens = lex(src).unwrap();
         assert_eq!(
             tokens,
             vec![tok(
@@ -209,7 +222,7 @@ mod tests {
     #[test]
     fn test_lex_identifier_with_ascii_uppercase() {
         let src = "FoO";
-        let tokens = lex(src);
+        let tokens = lex(src).unwrap();
         assert_eq!(
             tokens,
             vec![tok(
@@ -224,7 +237,7 @@ mod tests {
         // Multibyte case folding is not implemented yet. See:
         // https://github.com/postgres/postgres/blob/REL_18_1/src/backend/parser/scansup.c#L55-L63
         let src = "FÖO";
-        let tokens = lex(src);
+        let tokens = lex(src).unwrap();
         assert_eq!(
             tokens,
             vec![tok(
@@ -237,7 +250,7 @@ mod tests {
     #[test]
     fn test_lex_identifier_with_numbers() {
         let src = "foo123";
-        let tokens = lex(src);
+        let tokens = lex(src).unwrap();
         assert_eq!(
             tokens,
             vec![tok(
@@ -250,7 +263,7 @@ mod tests {
     #[test]
     fn test_lex_identifier_with_underscore() {
         let src = "foo_bar";
-        let tokens = lex(src);
+        let tokens = lex(src).unwrap();
         assert_eq!(
             tokens,
             vec![tok(
@@ -263,7 +276,7 @@ mod tests {
     #[test]
     fn test_lex_identifier_with_dollar() {
         let src = "foo$bar";
-        let tokens = lex(src);
+        let tokens = lex(src).unwrap();
         assert_eq!(
             tokens,
             vec![tok(
@@ -276,7 +289,7 @@ mod tests {
     #[test]
     fn test_lex_identifier_with_non_ascii() {
         let src = "föo";
-        let tokens = lex(src);
+        let tokens = lex(src).unwrap();
         assert_eq!(
             tokens,
             vec![tok(
@@ -289,7 +302,7 @@ mod tests {
     #[test]
     fn test_lex_keyword_simple() {
         let src = "select";
-        let tokens = lex(src);
+        let tokens = lex(src).unwrap();
         assert_eq!(
             tokens,
             vec![tok(TokenKind::KeywordSelect, pos(src, "select", 0))]
@@ -299,7 +312,7 @@ mod tests {
     #[test]
     fn test_lex_keyword_case_fold() {
         let src = "SeLeCt";
-        let tokens = lex(src);
+        let tokens = lex(src).unwrap();
         assert_eq!(
             tokens,
             vec![tok(TokenKind::KeywordSelect, pos(src, "SeLeCt", 0))]
@@ -309,7 +322,7 @@ mod tests {
     #[test]
     fn test_lex_integer_simple() {
         let src = "12345";
-        let tokens = lex(src);
+        let tokens = lex(src).unwrap();
         assert_eq!(
             tokens,
             vec![tok(
@@ -322,7 +335,7 @@ mod tests {
     #[test]
     fn test_lex_integer_decimal_leading_zeros() {
         let src = "00012345";
-        let tokens = lex(src);
+        let tokens = lex(src).unwrap();
         assert_eq!(
             tokens,
             vec![tok(
@@ -335,7 +348,7 @@ mod tests {
     #[test]
     fn test_lex_integer_underscores() {
         let src = "12_345_678";
-        let tokens = lex(src);
+        let tokens = lex(src).unwrap();
         assert_eq!(
             tokens,
             vec![tok(
