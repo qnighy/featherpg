@@ -106,7 +106,7 @@ impl Hash for Symbol {
 impl Default for Symbol {
     fn default() -> Self {
         Symbol {
-            inner: SymbolCase::Keyword(ID__empty_string),
+            inner: SymbolCase::Keyword(ID__EMPTY_STRING),
         }
     }
 }
@@ -143,8 +143,8 @@ enum SymbolCase {
 
 macro_rules! build_keyword_list {
     ($($key:expr => $value:expr,)*) => {
-        static KEYWORDS: [Option<&'static str>; ID__max] = {
-            let mut keywords: [Option<&'static str>; ID__max] = [None; ID__max];
+        static KEYWORDS: [Option<&'static str>; ID__MAX] = {
+            let mut keywords: [Option<&'static str>; ID__MAX] = [None; ID__MAX];
             $(
                 keywords[$value] = Some($key);
             )*
@@ -166,23 +166,23 @@ macro_rules! build_keywords {
 }
 
 build_keywords!(
-    "" => ID__empty_string,
+    "" => ID__EMPTY_STRING,
     "select" => ID_select,
     "from" => ID_from,
 );
 
 #[allow(non_upper_case_globals)]
-const ID__empty_string: usize = 0;
+const ID__EMPTY_STRING: usize = 0;
 #[allow(non_upper_case_globals)]
 const ID_select: usize = 1;
 #[allow(non_upper_case_globals)]
 const ID_from: usize = 2;
 #[allow(non_upper_case_globals)]
-const ID__max: usize = 3;
+const ID__MAX: usize = 3;
 
 impl Symbol {
     #[allow(non_upper_case_globals)]
-    pub const KEYWORD__empty_string: Symbol = Symbol::from_keyword_id(ID__empty_string);
+    pub const KEYWORD__EMPTY_STRING: Symbol = Symbol::from_keyword_id(ID__EMPTY_STRING);
     #[allow(non_upper_case_globals)]
     pub const KEYWORD_select: Symbol = Symbol::from_keyword_id(ID_select);
     #[allow(non_upper_case_globals)]
