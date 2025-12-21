@@ -234,7 +234,7 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn next_operator_token(&mut self, start: usize, diags: &mut CodeDiagnostics) -> Token {
+    fn next_operator_token(&mut self, start: usize, _diags: &mut CodeDiagnostics) -> Token {
         self.pos += 1;
         while self.pos < self.src.len()
             && matches!(self.src.as_bytes()[self.pos], byte_pattern!(symbol))
@@ -276,11 +276,7 @@ impl<'a> Lexer<'a> {
             ">" => TokenKind::Gt,
             "<=" => TokenKind::Le,
             ">=" => TokenKind::Ge,
-            _ => {
-                let range = self.range_from(start);
-                diags.add(CodeDiagnostic::UnknownToken { range });
-                TokenKind::Unknown
-            }
+            _ => TokenKind::UserOp(sym.to_string()),
         };
 
         Token {
@@ -683,5 +679,67 @@ mod tests {
         let src = ">=";
         let tokens = lex(src).unwrap();
         assert_eq!(tokens, vec![tok(TokenKind::Ge, pos(src, ">=", 0))]);
+    }
+
+    #[test]
+    fn test_lex_user_op_all_symbols() {
+        // Test an operator containing all possible operator symbols
+        // Starting with @ (extra symbol) means no trailing breaks occur
+        let src = "@~!#%^&|?+*/<=>-";
+        let tokens = lex(src).unwrap();
+        assert_eq!(
+            tokens,
+            vec![tok(
+                TokenKind::UserOp("@~!#%^&|?+*/<=>-".to_string()),
+                pos(src, "@~!#%^&|?+*/<=>-", 0)
+            )]
+        );
+    }
+
+    #[test]
+    fn test_lex_user_op_breaks_before_trailing_plus() {
+        // Base-only operator should break before trailing +
+        let src = "=>+";
+        let tokens = lex(src).unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                tok(TokenKind::UserOp("=>".to_string()), pos(src, "=>", 0)),
+                tok(TokenKind::Plus, pos(src, "+", 0))
+            ]
+        );
+    }
+
+    #[test]
+    fn test_lex_user_op_breaks_before_trailing_minus() {
+        // Base-only operator should break before trailing -
+        let src = "=<-";
+        let tokens = lex(src).unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                tok(TokenKind::UserOp("=<".to_string()), pos(src, "=<", 0)),
+                tok(TokenKind::Minus, pos(src, "-", 0))
+            ]
+        );
+    }
+
+    #[test]
+    fn test_lex_user_op_no_break_with_extra_symbols() {
+        // Should NOT break before trailing + if operator has extra symbols
+        let src = "@+";
+        let tokens = lex(src).unwrap();
+        assert_eq!(
+            tokens,
+            vec![tok(TokenKind::UserOp("@+".to_string()), pos(src, "@+", 0))]
+        );
+    }
+
+    #[test]
+    fn test_lex_user_op_no_break_for_single_char() {
+        // Should NOT break for single-character + or -
+        let src = "+";
+        let tokens = lex(src).unwrap();
+        assert_eq!(tokens, vec![tok(TokenKind::Plus, pos(src, "+", 0))]);
     }
 }

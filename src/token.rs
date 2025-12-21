@@ -73,6 +73,8 @@ pub(crate) enum TokenKind {
     Le,
     /// Operator `>=`
     Ge,
+    /// User-defined operator, such as `<->` or `@>`.
+    UserOp(String),
     /// An unknown token. The error has already been reported.
     Unknown,
 }
