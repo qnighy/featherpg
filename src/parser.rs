@@ -1,6 +1,7 @@
 // https://github.com/postgres/postgres/blob/REL_18_1/src/backend/parser/gram.y
 
 use crate::{
+    Symbol,
     ast::{ExprKind, ExprNode, StmtKind, StmtMultiNode, StmtNode},
     diag::{CodeDiagnostic, CodeDiagnostics, CodeError},
     lexer::Lexer,
@@ -91,7 +92,15 @@ impl<'a> Parser<'a> {
     fn parse_stmt(&mut self, tok0: Token, diags: &mut CodeDiagnostics) -> (StmtNode, Token) {
         // TODO: incomplete list of statement syntaxes
         match tok0.kind {
-            TokenKind::KeywordSelect => {
+            // TODO: handle keyword contexts correctly, such as:
+            //
+            // - statement/expression context
+            // - function/type context
+            // - implicit renaming context (e.g. `SELECT 1 x`)
+            TokenKind::Identifier {
+                name: Symbol::KEYWORD_select,
+                quoted: false,
+            } => {
                 let tok1 = self.lexer.next_token(diags);
                 let (expr, tok2) = self.parse_expr(tok1, diags);
                 let stmt = StmtNode {

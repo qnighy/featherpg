@@ -2,7 +2,7 @@
 
 use num_bigint::BigInt;
 
-use crate::pos::CodeRange;
+use crate::{Symbol, pos::CodeRange};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct Token {
@@ -14,13 +14,21 @@ pub(crate) struct Token {
 pub(crate) enum TokenKind {
     /// A virtual token representing the end of the input stream.
     Eof,
-    /// Identifier, unquoted or quoted.
+    /// Keyword, unquoted identifier, or quoted identifier.
     ///
     /// - Unquoted (`foo`), always folded to lowercase.
     /// - Quoted(`"foo"`)
-    Identifier(String),
-    /// `SELECT`
-    KeywordSelect,
+    Identifier {
+        /// The name value.
+        ///
+        /// For unquoted identifiers, this is the value after folding to lowercase.
+        ///
+        /// For quoted identifiers, quotation marks have been removed, and escape sequences
+        /// have been processed.
+        name: Symbol,
+        /// When false, the identifier may be treated as a keyword.
+        quoted: bool,
+    },
     /// A nonnegative integer literal. It ultimately results in one of:
     ///
     /// - integer (i32)

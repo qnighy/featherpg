@@ -3,13 +3,14 @@
 // and may differ from the spec in many ways.
 // A thorough review is needed once the rough implementation is done.
 
-use std::{borrow::Cow, collections::HashMap, sync::LazyLock};
+use std::borrow::Cow;
 
 use num_bigint::BigInt;
 
 #[cfg(test)]
 use crate::diag::CodeError;
 use crate::{
+    Symbol,
     diag::{CodeDiagnostic, CodeDiagnostics},
     pos::CodeRange,
     token::{Token, TokenKind},
@@ -43,7 +44,6 @@ pub(crate) fn lex_with_diags(src: &str, diags: &mut CodeDiagnostics) -> Vec<Toke
 pub(crate) struct Lexer<'a> {
     src: &'a str,
     pos: usize,
-    keyword_map: &'static HashMap<&'static str, TokenKind>,
 }
 
 macro_rules! byte_pattern {
@@ -69,11 +69,7 @@ macro_rules! byte_pattern {
 
 impl<'a> Lexer<'a> {
     pub(crate) fn new(src: &'a str) -> Self {
-        Self {
-            src,
-            pos: 0,
-            keyword_map: &KEYWORD_MAP,
-        }
+        Self { src, pos: 0 }
     }
 
     pub(crate) fn next_token(&mut self, diags: &mut CodeDiagnostics) -> Token {
@@ -205,22 +201,14 @@ impl<'a> Lexer<'a> {
         }
         let identifier = &self.src[start..self.pos];
         let identifier = identifier.to_ascii_lowercase();
+        let identifier = Symbol::from(identifier);
         let range = self.range_from(start);
-        // TODO: handle keyword contexts correctly, such as:
-        //
-        // - statement/expression context
-        // - function/type context
-        // - implicit renaming context (e.g. `SELECT 1 x`)
-        if let Some(keyword_kind) = self.keyword_map.get(&identifier[..]) {
-            Token {
-                kind: keyword_kind.clone(),
-                range,
-            }
-        } else {
-            Token {
-                kind: TokenKind::Identifier(identifier),
-                range,
-            }
+        Token {
+            kind: TokenKind::Identifier {
+                name: identifier,
+                quoted: false,
+            },
+            range,
         }
     }
 
@@ -332,12 +320,6 @@ impl<'a> Lexer<'a> {
     }
 }
 
-static KEYWORD_MAP: LazyLock<HashMap<&'static str, TokenKind>> = LazyLock::new(|| {
-    vec![("select", TokenKind::KeywordSelect)]
-        .into_iter()
-        .collect::<HashMap<_, _>>()
-});
-
 #[cfg(test)]
 mod tests {
     use crate::{
@@ -370,8 +352,20 @@ mod tests {
         assert_eq!(
             tokens,
             vec![
-                tok(TokenKind::Identifier("foo".to_string()), pos(src, "foo", 0)),
-                tok(TokenKind::Identifier("bar".to_string()), pos(src, "bar", 0)),
+                tok(
+                    TokenKind::Identifier {
+                        name: Symbol::from("foo"),
+                        quoted: false
+                    },
+                    pos(src, "foo", 0)
+                ),
+                tok(
+                    TokenKind::Identifier {
+                        name: Symbol::from("bar"),
+                        quoted: false
+                    },
+                    pos(src, "bar", 0)
+                ),
             ]
         );
     }
@@ -383,7 +377,10 @@ mod tests {
         assert_eq!(
             tokens,
             vec![tok(
-                TokenKind::Identifier("foo".to_string()),
+                TokenKind::Identifier {
+                    name: Symbol::from("foo"),
+                    quoted: false
+                },
                 pos(src, "foo", 0)
             )]
         );
@@ -396,7 +393,10 @@ mod tests {
         assert_eq!(
             tokens,
             vec![tok(
-                TokenKind::Identifier("foo".to_string()),
+                TokenKind::Identifier {
+                    name: Symbol::from("foo"),
+                    quoted: false
+                },
                 pos(src, "FoO", 0)
             )]
         );
@@ -411,7 +411,10 @@ mod tests {
         assert_eq!(
             tokens,
             vec![tok(
-                TokenKind::Identifier("fÖo".to_string()),
+                TokenKind::Identifier {
+                    name: Symbol::from("fÖo"),
+                    quoted: false
+                },
                 pos(src, "FÖO", 0)
             )]
         );
@@ -424,7 +427,10 @@ mod tests {
         assert_eq!(
             tokens,
             vec![tok(
-                TokenKind::Identifier("foo123".to_string()),
+                TokenKind::Identifier {
+                    name: Symbol::from("foo123"),
+                    quoted: false
+                },
                 pos(src, "foo123", 0)
             )]
         );
@@ -437,7 +443,10 @@ mod tests {
         assert_eq!(
             tokens,
             vec![tok(
-                TokenKind::Identifier("foo_bar".to_string()),
+                TokenKind::Identifier {
+                    name: Symbol::from("foo_bar"),
+                    quoted: false
+                },
                 pos(src, "foo_bar", 0)
             )]
         );
@@ -450,7 +459,10 @@ mod tests {
         assert_eq!(
             tokens,
             vec![tok(
-                TokenKind::Identifier("foo$bar".to_string()),
+                TokenKind::Identifier {
+                    name: Symbol::from("foo$bar"),
+                    quoted: false
+                },
                 pos(src, "foo$bar", 0)
             )]
         );
@@ -463,29 +475,12 @@ mod tests {
         assert_eq!(
             tokens,
             vec![tok(
-                TokenKind::Identifier("föo".to_string()),
+                TokenKind::Identifier {
+                    name: Symbol::from("föo"),
+                    quoted: false
+                },
                 pos(src, "föo", 0)
             )]
-        );
-    }
-
-    #[test]
-    fn test_lex_keyword_simple() {
-        let src = "select";
-        let tokens = lex(src).unwrap();
-        assert_eq!(
-            tokens,
-            vec![tok(TokenKind::KeywordSelect, pos(src, "select", 0))]
-        );
-    }
-
-    #[test]
-    fn test_lex_keyword_case_fold() {
-        let src = "SeLeCt";
-        let tokens = lex(src).unwrap();
-        assert_eq!(
-            tokens,
-            vec![tok(TokenKind::KeywordSelect, pos(src, "SeLeCt", 0))]
         );
     }
 
