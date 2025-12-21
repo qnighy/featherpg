@@ -105,9 +105,7 @@ impl Hash for Symbol {
 
 impl Default for Symbol {
     fn default() -> Self {
-        Symbol {
-            inner: SymbolCase::Keyword(ID__EMPTY_STRING),
-        }
+        Symbol::KEYWORD__EMPTY_STRING
     }
 }
 
@@ -141,53 +139,37 @@ enum SymbolCase {
     Custom(String),
 }
 
-macro_rules! build_keyword_list {
-    ($($key:expr => $value:expr,)*) => {
-        static KEYWORDS: [Option<&'static str>; ID__MAX] = {
-            let mut keywords: [Option<&'static str>; ID__MAX] = [None; ID__MAX];
+macro_rules! build_keywords {
+    ($($key:expr => ($value:expr, $kwd_const:ident),)*) => {
+        static KEYWORDS: [Option<&'static str>; ID_MAX] = {
+            let mut keywords: [Option<&'static str>; ID_MAX] = [None; ID_MAX];
             $(
                 keywords[$value] = Some($key);
             )*
             keywords
         };
-    };
-}
-
-macro_rules! build_keywords {
-    ($($args:tt)*) => {
-        build_keyword_list! {
-            $($args)*
-        }
 
         static KEYWORD_MAP: phf::Map<&'static str, usize> = phf_map! {
-            $($args)*
+            $($key => $value,)*
         };
+
+        impl Symbol {
+            $(
+                #[allow(non_upper_case_globals)]
+                pub const $kwd_const: Symbol = Symbol::from_keyword_id($value);
+            )*
+        }
     };
 }
 
 build_keywords!(
-    "" => ID__EMPTY_STRING,
-    "select" => ID_select,
-    "from" => ID_from,
+    "" => (0, KEYWORD__EMPTY_STRING),
+    "select" => (1, KEYWORD_select),
+    "from" => (2, KEYWORD_from),
 );
 
 #[allow(non_upper_case_globals)]
-const ID__EMPTY_STRING: usize = 0;
-#[allow(non_upper_case_globals)]
-const ID_select: usize = 1;
-#[allow(non_upper_case_globals)]
-const ID_from: usize = 2;
-#[allow(non_upper_case_globals)]
-const ID__MAX: usize = 3;
-
-impl Symbol {
-    #[allow(non_upper_case_globals)]
-    pub const KEYWORD__EMPTY_STRING: Symbol = Symbol::from_keyword_id(ID__EMPTY_STRING);
-    #[allow(non_upper_case_globals)]
-    pub const KEYWORD_select: Symbol = Symbol::from_keyword_id(ID_select);
-    #[allow(non_upper_case_globals)]
-    pub const KEYWORD_from: Symbol = Symbol::from_keyword_id(ID_from);
-}
+const ID_MAX: usize = 3;
 
 #[cfg(test)]
 mod tests {
