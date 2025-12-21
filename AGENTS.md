@@ -4,6 +4,33 @@
 
 This is a PostgreSQL-compatible in-memory database implemented in Rust, focused on use in automated testing environments.
 
+## Common commands
+
+### Building and checking
+
+- Check code without building: `cargo check`
+- Build the project: `cargo build`
+- Build with optimizations: `cargo build --release`
+
+### Running tests
+
+When running `cargo test`, use the correct syntax for filtering tests:
+- Run all tests: `cargo test`
+- Run all library tests: `cargo test --lib`
+- Run specific test(s): `cargo test --lib -- test_name` (note the `--` before the filter)
+- Run tests matching a pattern: `cargo test --lib -- pattern`
+- Run tests in a specific module: `cargo test --lib -- module_name::tests`
+- Show test output even for passing tests: `cargo test --lib -- --show-output`
+- Run tests without capturing output: `cargo test --lib -- --nocapture`
+
+**Common mistake:** `cargo test --lib test_name` is incorrect - this passes `test_name` as an option to cargo, not to the test binary. Always use `--` before test filters.
+
+### Other useful commands
+
+- Format code: `cargo fmt`
+- Run linter: `cargo clippy`
+- Clean build artifacts: `cargo clean`
+
 ## What and what not
 
 - It is a PostgreSQL-compatible database focused on use in automated testing environments. (Not complete yet.)

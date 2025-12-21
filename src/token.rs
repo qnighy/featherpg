@@ -41,10 +41,14 @@ pub(crate) enum TokenKind {
     RBrace,
     /// `.`
     Dot,
+    /// `..`
+    DotDot,
     /// `,`
     Comma,
     /// `:`
     Colon,
+    /// `:=`
+    ColonEq,
     /// `::`
     ColonColon,
     /// `;`
@@ -63,6 +67,8 @@ pub(crate) enum TokenKind {
     Minus,
     /// Operator `=`
     Eq,
+    /// `=>` (not an operator)
+    FatArrow,
     /// Operator `<>` (or `!=`)
     Neq,
     /// Operator `<`

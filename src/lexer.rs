@@ -136,9 +136,17 @@ impl<'a> Lexer<'a> {
             }
             b'.' => {
                 self.pos += 1;
-                Token {
-                    kind: TokenKind::Dot,
-                    range: self.range_from(start),
+                if self.pos < self.src.len() && self.src.as_bytes()[self.pos] == b'.' {
+                    self.pos += 1;
+                    Token {
+                        kind: TokenKind::DotDot,
+                        range: self.range_from(start),
+                    }
+                } else {
+                    Token {
+                        kind: TokenKind::Dot,
+                        range: self.range_from(start),
+                    }
                 }
             }
             b',' => {
@@ -154,6 +162,12 @@ impl<'a> Lexer<'a> {
                     self.pos += 1;
                     Token {
                         kind: TokenKind::ColonColon,
+                        range: self.range_from(start),
+                    }
+                } else if self.pos < self.src.len() && self.src.as_bytes()[self.pos] == b'=' {
+                    self.pos += 1;
+                    Token {
+                        kind: TokenKind::ColonEq,
                         range: self.range_from(start),
                     }
                 } else {
@@ -271,6 +285,7 @@ impl<'a> Lexer<'a> {
             "+" => TokenKind::Plus,
             "-" => TokenKind::Minus,
             "=" => TokenKind::Eq,
+            "=>" => TokenKind::FatArrow,
             "<>" | "!=" => TokenKind::Neq,
             "<" => TokenKind::Lt,
             ">" => TokenKind::Gt,
@@ -563,6 +578,13 @@ mod tests {
     }
 
     #[test]
+    fn test_lex_dot_dot() {
+        let src = "..";
+        let tokens = lex(src).unwrap();
+        assert_eq!(tokens, vec![tok(TokenKind::DotDot, pos(src, "..", 0))]);
+    }
+
+    #[test]
     fn test_lex_comma() {
         let src = ",";
         let tokens = lex(src).unwrap();
@@ -581,6 +603,13 @@ mod tests {
         let src = "::";
         let tokens = lex(src).unwrap();
         assert_eq!(tokens, vec![tok(TokenKind::ColonColon, pos(src, "::", 0))]);
+    }
+
+    #[test]
+    fn test_lex_colon_eq() {
+        let src = ":=";
+        let tokens = lex(src).unwrap();
+        assert_eq!(tokens, vec![tok(TokenKind::ColonEq, pos(src, ":=", 0))]);
     }
 
     #[test]
@@ -637,6 +666,13 @@ mod tests {
         let src = "=";
         let tokens = lex(src).unwrap();
         assert_eq!(tokens, vec![tok(TokenKind::Eq, pos(src, "=", 0))]);
+    }
+
+    #[test]
+    fn test_lex_fat_arrow() {
+        let src = "=>";
+        let tokens = lex(src).unwrap();
+        assert_eq!(tokens, vec![tok(TokenKind::FatArrow, pos(src, "=>", 0))]);
     }
 
     #[test]
@@ -699,12 +735,26 @@ mod tests {
     #[test]
     fn test_lex_user_op_breaks_before_trailing_plus() {
         // Base-only operator should break before trailing +
+        let src = "=<+";
+        let tokens = lex(src).unwrap();
+        assert_eq!(
+            tokens,
+            vec![
+                tok(TokenKind::UserOp("=<".to_string()), pos(src, "=<", 0)),
+                tok(TokenKind::Plus, pos(src, "+", 0))
+            ]
+        );
+    }
+
+    #[test]
+    fn test_lex_fat_arrow_before_plus() {
+        // => should be carved out as FatArrow
         let src = "=>+";
         let tokens = lex(src).unwrap();
         assert_eq!(
             tokens,
             vec![
-                tok(TokenKind::UserOp("=>".to_string()), pos(src, "=>", 0)),
+                tok(TokenKind::FatArrow, pos(src, "=>", 0)),
                 tok(TokenKind::Plus, pos(src, "+", 0))
             ]
         );
