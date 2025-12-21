@@ -46,6 +46,27 @@ pub(crate) struct Lexer<'a> {
     keyword_map: &'static HashMap<&'static str, TokenKind>,
 }
 
+macro_rules! byte_pattern {
+    (digit) => {
+        b'0'..=b'9'
+    };
+    (ident_start) => {
+        b'A'..=b'Z' | b'a'..=b'z' | b'_' | 0x80..=0xFF
+    };
+    (ident_continue) => {
+        byte_pattern!(ident_start) | byte_pattern!(digit) | b'$'
+    };
+    (symbol_base) => {
+        b'+' | b'-' | b'*' | b'/' | b'<' | b'>' | b'='
+    };
+    (symbol_extra) => {
+        b'~' | b'!' | b'@' | b'#' | b'%' | b'^' | b'&' | b'|' | b'`' | b'?'
+    };
+    (symbol) => {
+        byte_pattern!(symbol_base) | byte_pattern!(symbol_extra)
+    };
+}
+
 impl<'a> Lexer<'a> {
     pub(crate) fn new(src: &'a str) -> Self {
         Self {
@@ -62,106 +83,210 @@ impl<'a> Lexer<'a> {
         if self.pos >= self.src.len() {
             return Token {
                 kind: TokenKind::Eof,
-                range: CodeRange {
-                    start: start_before_ws,
-                    end: start_before_ws,
-                },
+                range: self.range_from(start_before_ws),
             };
         }
 
         let start = self.pos;
 
-        if Self::is_ident_start(self.src.as_bytes()[self.pos]) {
-            while self.pos < self.src.len()
-                && Self::is_ident_continue(self.src.as_bytes()[self.pos])
-            {
+        match self.src.as_bytes()[self.pos] {
+            byte_pattern!(ident_start) => self.next_identifier_token(start, diags),
+            byte_pattern!(digit) => self.next_numeric_token(start, diags),
+            b'(' => {
                 self.pos += 1;
-            }
-            let identifier = &self.src[start..self.pos];
-            let identifier = identifier.to_ascii_lowercase();
-            let range = CodeRange {
-                start,
-                end: self.pos,
-            };
-            // TODO: handle keyword contexts correctly, such as:
-            //
-            // - statement/expression context
-            // - function/type context
-            // - implicit renaming context (e.g. `SELECT 1 x`)
-            if let Some(keyword_kind) = self.keyword_map.get(&identifier[..]) {
                 Token {
-                    kind: keyword_kind.clone(),
-                    range,
-                }
-            } else {
-                Token {
-                    kind: TokenKind::Identifier(identifier),
-                    range,
+                    kind: TokenKind::LParen,
+                    range: self.range_from(start),
                 }
             }
-        } else if self.src.as_bytes()[self.pos].is_ascii_digit() {
-            while self.pos < self.src.len()
-                && Self::is_ident_continue(self.src.as_bytes()[self.pos])
-            {
+            b')' => {
                 self.pos += 1;
-            }
-            let s = &self.src[start..self.pos];
-            if Self::is_decimal_integer(s) {
-                // TODO: check against invalid underscore occurrences
-                let value = Self::remove_underscores(s).parse::<BigInt>().unwrap();
                 Token {
-                    kind: TokenKind::Integer(value),
-                    range: CodeRange {
-                        start,
-                        end: self.pos,
-                    },
+                    kind: TokenKind::RParen,
+                    range: self.range_from(start),
                 }
-            } else {
-                let range = CodeRange {
-                    start,
-                    end: self.pos,
-                };
+            }
+            b'[' => {
+                self.pos += 1;
+                Token {
+                    kind: TokenKind::LBracket,
+                    range: self.range_from(start),
+                }
+            }
+            b']' => {
+                self.pos += 1;
+                Token {
+                    kind: TokenKind::RBracket,
+                    range: self.range_from(start),
+                }
+            }
+            b'{' => {
+                self.pos += 1;
+                Token {
+                    kind: TokenKind::LBrace,
+                    range: self.range_from(start),
+                }
+            }
+            b'}' => {
+                self.pos += 1;
+                Token {
+                    kind: TokenKind::RBrace,
+                    range: self.range_from(start),
+                }
+            }
+            b'.' => {
+                self.pos += 1;
+                Token {
+                    kind: TokenKind::Dot,
+                    range: self.range_from(start),
+                }
+            }
+            b',' => {
+                self.pos += 1;
+                Token {
+                    kind: TokenKind::Comma,
+                    range: self.range_from(start),
+                }
+            }
+            b':' => {
+                self.pos += 1;
+                if self.pos < self.src.len() && self.src.as_bytes()[self.pos] == b':' {
+                    self.pos += 1;
+                    Token {
+                        kind: TokenKind::ColonColon,
+                        range: self.range_from(start),
+                    }
+                } else {
+                    Token {
+                        kind: TokenKind::Colon,
+                        range: self.range_from(start),
+                    }
+                }
+            }
+            b';' => {
+                self.pos += 1;
+                Token {
+                    kind: TokenKind::Semicolon,
+                    range: self.range_from(start),
+                }
+            }
+            byte_pattern!(symbol) => self.next_operator_token(start, diags),
+            _ => {
+                self.pos += 1;
+                let range = self.range_from(start);
                 diags.add(CodeDiagnostic::UnknownToken { range });
-                return Token {
+                Token {
                     kind: TokenKind::Unknown,
                     range,
-                };
-            }
-        } else {
-            match self.src.as_bytes()[self.pos] {
-                b';' => {
-                    self.pos += 1;
-                    let range = CodeRange {
-                        start,
-                        end: self.pos,
-                    };
-                    Token {
-                        kind: TokenKind::Semicolon,
-                        range,
-                    }
-                }
-                _ => {
-                    self.pos += 1;
-                    let range = CodeRange {
-                        start,
-                        end: self.pos,
-                    };
-                    diags.add(CodeDiagnostic::UnknownToken { range });
-                    Token {
-                        kind: TokenKind::Unknown,
-                        range,
-                    }
                 }
             }
         }
     }
 
-    fn is_ident_start(b: u8) -> bool {
-        b.is_ascii_alphabetic() || b == b'_' || b >= b'\x80'
+    fn next_identifier_token(&mut self, start: usize, _diags: &mut CodeDiagnostics) -> Token {
+        while self.pos < self.src.len()
+            && matches!(self.src.as_bytes()[self.pos], byte_pattern!(ident_continue))
+        {
+            self.pos += 1;
+        }
+        let identifier = &self.src[start..self.pos];
+        let identifier = identifier.to_ascii_lowercase();
+        let range = self.range_from(start);
+        // TODO: handle keyword contexts correctly, such as:
+        //
+        // - statement/expression context
+        // - function/type context
+        // - implicit renaming context (e.g. `SELECT 1 x`)
+        if let Some(keyword_kind) = self.keyword_map.get(&identifier[..]) {
+            Token {
+                kind: keyword_kind.clone(),
+                range,
+            }
+        } else {
+            Token {
+                kind: TokenKind::Identifier(identifier),
+                range,
+            }
+        }
     }
 
-    fn is_ident_continue(b: u8) -> bool {
-        b.is_ascii_alphanumeric() || b == b'_' || b == b'$' || b >= b'\x80'
+    fn next_numeric_token(&mut self, start: usize, diags: &mut CodeDiagnostics) -> Token {
+        while self.pos < self.src.len()
+            && matches!(self.src.as_bytes()[self.pos], byte_pattern!(ident_continue))
+        {
+            self.pos += 1;
+        }
+        let s = &self.src[start..self.pos];
+        if Self::is_decimal_integer(s) {
+            // TODO: check against invalid underscore occurrences
+            let value = Self::remove_underscores(s).parse::<BigInt>().unwrap();
+            Token {
+                kind: TokenKind::Integer(value),
+                range: self.range_from(start),
+            }
+        } else {
+            let range = self.range_from(start);
+            diags.add(CodeDiagnostic::UnknownToken { range });
+            return Token {
+                kind: TokenKind::Unknown,
+                range,
+            };
+        }
+    }
+
+    fn next_operator_token(&mut self, start: usize, diags: &mut CodeDiagnostics) -> Token {
+        self.pos += 1;
+        while self.pos < self.src.len()
+            && matches!(self.src.as_bytes()[self.pos], byte_pattern!(symbol))
+        {
+            self.pos += 1;
+            if self.src.as_bytes()[self.pos - 2..self.pos] == b"--"[..]
+                || self.src.as_bytes()[self.pos - 2..self.pos] == b"/*"[..]
+            {
+                // Break before comment start
+                self.pos -= 2;
+                break;
+            }
+        }
+        if self.pos == start {
+            // TODO: implement comment parsing and turn this check into `unreachable!()`
+            unimplemented!("comment handling");
+        }
+        let sym = &self.src[start..self.pos];
+
+        if sym.len() > 1
+            && matches!(sym.as_bytes()[sym.len() - 1], b'+' | b'-')
+            && sym.bytes().all(|b| matches!(b, byte_pattern!(symbol_base)))
+        {
+            // Break before trailing + or -
+            self.pos -= 1;
+        }
+        let sym = &self.src[start..self.pos];
+
+        let kind = match sym {
+            "^" => TokenKind::Caret,
+            "*" => TokenKind::Asterisk,
+            "/" => TokenKind::Slash,
+            "%" => TokenKind::Percent,
+            "+" => TokenKind::Plus,
+            "-" => TokenKind::Minus,
+            "=" => TokenKind::Eq,
+            "<>" | "!=" => TokenKind::Neq,
+            "<" => TokenKind::Lt,
+            ">" => TokenKind::Gt,
+            "<=" => TokenKind::Le,
+            ">=" => TokenKind::Ge,
+            _ => {
+                let range = self.range_from(start);
+                diags.add(CodeDiagnostic::UnknownToken { range });
+                TokenKind::Unknown
+            }
+        };
+
+        Token {
+            kind,
+            range: self.range_from(start),
+        }
     }
 
     fn is_decimal_integer(s: &str) -> bool {
@@ -185,6 +310,13 @@ impl<'a> Lexer<'a> {
                 .map_or(false, |c| c.is_whitespace())
         {
             self.pos += 1;
+        }
+    }
+
+    fn range_from(&self, start: usize) -> CodeRange {
+        CodeRange {
+            start,
+            end: self.pos,
         }
     }
 }
@@ -383,5 +515,173 @@ mod tests {
                 pos(src, "12_345_678", 0)
             )]
         );
+    }
+
+    #[test]
+    fn test_lex_lparen() {
+        let src = "(";
+        let tokens = lex(src).unwrap();
+        assert_eq!(tokens, vec![tok(TokenKind::LParen, pos(src, "(", 0))]);
+    }
+
+    #[test]
+    fn test_lex_rparen() {
+        let src = ")";
+        let tokens = lex(src).unwrap();
+        assert_eq!(tokens, vec![tok(TokenKind::RParen, pos(src, ")", 0))]);
+    }
+
+    #[test]
+    fn test_lex_lbracket() {
+        let src = "[";
+        let tokens = lex(src).unwrap();
+        assert_eq!(tokens, vec![tok(TokenKind::LBracket, pos(src, "[", 0))]);
+    }
+
+    #[test]
+    fn test_lex_rbracket() {
+        let src = "]";
+        let tokens = lex(src).unwrap();
+        assert_eq!(tokens, vec![tok(TokenKind::RBracket, pos(src, "]", 0))]);
+    }
+
+    #[test]
+    fn test_lex_lbrace() {
+        let src = "{";
+        let tokens = lex(src).unwrap();
+        assert_eq!(tokens, vec![tok(TokenKind::LBrace, pos(src, "{", 0))]);
+    }
+
+    #[test]
+    fn test_lex_rbrace() {
+        let src = "}";
+        let tokens = lex(src).unwrap();
+        assert_eq!(tokens, vec![tok(TokenKind::RBrace, pos(src, "}", 0))]);
+    }
+
+    #[test]
+    fn test_lex_dot() {
+        let src = ".";
+        let tokens = lex(src).unwrap();
+        assert_eq!(tokens, vec![tok(TokenKind::Dot, pos(src, ".", 0))]);
+    }
+
+    #[test]
+    fn test_lex_comma() {
+        let src = ",";
+        let tokens = lex(src).unwrap();
+        assert_eq!(tokens, vec![tok(TokenKind::Comma, pos(src, ",", 0))]);
+    }
+
+    #[test]
+    fn test_lex_colon() {
+        let src = ":";
+        let tokens = lex(src).unwrap();
+        assert_eq!(tokens, vec![tok(TokenKind::Colon, pos(src, ":", 0))]);
+    }
+
+    #[test]
+    fn test_lex_colon_colon() {
+        let src = "::";
+        let tokens = lex(src).unwrap();
+        assert_eq!(tokens, vec![tok(TokenKind::ColonColon, pos(src, "::", 0))]);
+    }
+
+    #[test]
+    fn test_lex_semicolon() {
+        let src = ";";
+        let tokens = lex(src).unwrap();
+        assert_eq!(tokens, vec![tok(TokenKind::Semicolon, pos(src, ";", 0))]);
+    }
+
+    #[test]
+    fn test_lex_caret() {
+        let src = "^";
+        let tokens = lex(src).unwrap();
+        assert_eq!(tokens, vec![tok(TokenKind::Caret, pos(src, "^", 0))]);
+    }
+
+    #[test]
+    fn test_lex_asterisk() {
+        let src = "*";
+        let tokens = lex(src).unwrap();
+        assert_eq!(tokens, vec![tok(TokenKind::Asterisk, pos(src, "*", 0))]);
+    }
+
+    #[test]
+    fn test_lex_slash() {
+        let src = "/";
+        let tokens = lex(src).unwrap();
+        assert_eq!(tokens, vec![tok(TokenKind::Slash, pos(src, "/", 0))]);
+    }
+
+    #[test]
+    fn test_lex_percent() {
+        let src = "%";
+        let tokens = lex(src).unwrap();
+        assert_eq!(tokens, vec![tok(TokenKind::Percent, pos(src, "%", 0))]);
+    }
+
+    #[test]
+    fn test_lex_plus() {
+        let src = "+";
+        let tokens = lex(src).unwrap();
+        assert_eq!(tokens, vec![tok(TokenKind::Plus, pos(src, "+", 0))]);
+    }
+
+    #[test]
+    fn test_lex_minus() {
+        let src = "-";
+        let tokens = lex(src).unwrap();
+        assert_eq!(tokens, vec![tok(TokenKind::Minus, pos(src, "-", 0))]);
+    }
+
+    #[test]
+    fn test_lex_eq() {
+        let src = "=";
+        let tokens = lex(src).unwrap();
+        assert_eq!(tokens, vec![tok(TokenKind::Eq, pos(src, "=", 0))]);
+    }
+
+    #[test]
+    fn test_lex_neq_standard() {
+        let src = "<>";
+        let tokens = lex(src).unwrap();
+        assert_eq!(tokens, vec![tok(TokenKind::Neq, pos(src, "<>", 0))]);
+    }
+
+    #[test]
+    fn test_lex_neq_de_facto() {
+        let src = "!=";
+        let tokens = lex(src).unwrap();
+        assert_eq!(tokens, vec![tok(TokenKind::Neq, pos(src, "!=", 0))]);
+    }
+
+    #[test]
+    fn test_lex_lt() {
+        let src = "<";
+        let tokens = lex(src).unwrap();
+        assert_eq!(tokens, vec![tok(TokenKind::Lt, pos(src, "<", 0))]);
+    }
+
+    #[test]
+    fn test_lex_gt() {
+        let src = ">";
+        let tokens = lex(src).unwrap();
+        assert_eq!(tokens, vec![tok(TokenKind::Gt, pos(src, ">", 0))]);
+    }
+
+    #[test]
+    fn test_lex_le() {
+        let src = "<=";
+        let tokens = lex(src).unwrap();
+        assert_eq!(tokens, vec![tok(TokenKind::Le, pos(src, "<=", 0))]);
+    }
+
+    #[test]
+    fn test_lex_ge() {
+        let src = ">=";
+        let tokens = lex(src).unwrap();
+        assert_eq!(tokens, vec![tok(TokenKind::Ge, pos(src, ">=", 0))]);
     }
 }
