@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     cmp::Ordering,
     fmt,
     hash::{Hash, Hasher},
@@ -129,6 +130,15 @@ impl From<String> for Symbol {
             Symbol {
                 inner: SymbolCase::Custom(s),
             }
+        }
+    }
+}
+
+impl<'a> From<Cow<'a, str>> for Symbol {
+    fn from(s: Cow<'a, str>) -> Self {
+        match s {
+            Cow::Borrowed(b) => Symbol::from(b),
+            Cow::Owned(o) => Symbol::from(o),
         }
     }
 }

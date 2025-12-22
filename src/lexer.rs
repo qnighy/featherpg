@@ -88,6 +88,7 @@ impl<'a> Lexer<'a> {
         match self.src.as_bytes()[self.pos] {
             byte_pattern!(ident_start) => self.next_identifier_token(start, diags),
             byte_pattern!(digit) => self.next_numeric_token(start, diags),
+            b'"' => self.next_quoted_identifier_token(start, diags),
             b'(' => {
                 self.pos += 1;
                 Token {
@@ -233,6 +234,52 @@ impl<'a> Lexer<'a> {
                 kind: TokenKind::Unknown,
                 range,
             };
+        }
+    }
+
+    fn next_quoted_identifier_token(&mut self, start: usize, diags: &mut CodeDiagnostics) -> Token {
+        self.pos += 1; // skip opening quote
+        let mut has_escape = false;
+        loop {
+            if self.pos >= self.src.len() {
+                // Unterminated quoted identifier
+                let range = self.range_from(start);
+                // TODO: better diagnostic
+                diags.add(CodeDiagnostic::UnknownToken { range });
+                return Token {
+                    kind: TokenKind::Unknown,
+                    range,
+                };
+            }
+            if self.src.as_bytes()[self.pos] == b'"' {
+                if self.pos + 1 < self.src.len() && self.src.as_bytes()[self.pos + 1] == b'"' {
+                    // Escaped quote
+                    self.pos += 2;
+                    has_escape = true;
+                } else {
+                    // Closing quote
+                    self.pos += 1;
+                    break;
+                }
+            } else {
+                self.pos += 1;
+            }
+        }
+        // TODO: reject empty quoted identifiers
+        let identifier = &self.src[start + 1..self.pos - 1];
+        let identifier = if has_escape {
+            Cow::Owned(identifier.replace("\"\"", "\""))
+        } else {
+            Cow::Borrowed(identifier)
+        };
+        let identifier = Symbol::from(identifier.to_string());
+        let range = self.range_from(start);
+        Token {
+            kind: TokenKind::Identifier {
+                name: identifier,
+                quoted: true,
+            },
+            range,
         }
     }
 
@@ -519,6 +566,54 @@ mod tests {
             vec![tok(
                 TokenKind::Integer(BigInt::from(12345678)),
                 pos(src, "12_345_678", 0)
+            )]
+        );
+    }
+
+    #[test]
+    fn test_lex_quoted_identifier_simple() {
+        let src = r#""Foo""#;
+        let tokens = lex(src).unwrap();
+        assert_eq!(
+            tokens,
+            vec![tok(
+                TokenKind::Identifier {
+                    name: Symbol::from("Foo"),
+                    quoted: true
+                },
+                pos(src, r#""Foo""#, 0)
+            )]
+        );
+    }
+
+    #[test]
+    fn test_lex_quoted_identifier_with_escaped_quote() {
+        let src = r#""Foo""Bar""#;
+        let tokens = lex(src).unwrap();
+        assert_eq!(
+            tokens,
+            vec![tok(
+                TokenKind::Identifier {
+                    name: Symbol::from("Foo\"Bar"),
+                    quoted: true
+                },
+                pos(src, r#""Foo""Bar""#, 0)
+            )]
+        );
+    }
+
+    #[test]
+    fn test_lex_quoted_identifier_with_capital_letters() {
+        let src = r#""FoO""#;
+        let tokens = lex(src).unwrap();
+        assert_eq!(
+            tokens,
+            vec![tok(
+                TokenKind::Identifier {
+                    name: Symbol::from("FoO"),
+                    quoted: true
+                },
+                pos(src, r#""FoO""#, 0)
             )]
         );
     }
