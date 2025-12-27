@@ -1,4 +1,7 @@
-use std::{io, str::Utf8Error};
+use std::{
+    io::{self, Write},
+    str::Utf8Error,
+};
 
 use thiserror::Error;
 
@@ -7,6 +10,33 @@ pub(super) enum ColumnFormat {
     Text,
     Binary,
 }
+
+pub(super) trait WriteExt: Write {
+    fn write_cstring(&mut self, s: &str) -> io::Result<()> {
+        if s.contains('\0') {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "CString cannot contain null bytes",
+            ));
+        }
+        self.write_all(s.as_bytes())?;
+        self.write_all(&[0])?;
+        Ok(())
+    }
+
+    fn write_u32(&mut self, value: u32) -> io::Result<()> {
+        self.write_all(&value.to_be_bytes())?;
+        Ok(())
+    }
+
+    fn write_version(&mut self, major: u16, minor: u16) -> io::Result<()> {
+        self.write_all(&major.to_be_bytes())?;
+        self.write_all(&minor.to_be_bytes())?;
+        Ok(())
+    }
+}
+
+impl<T: Write + ?Sized> WriteExt for T {}
 
 pub(super) trait WritableWireMessage {
     fn type_byte(&self) -> u8;
@@ -37,8 +67,18 @@ pub(super) trait WritableWireMessageExt: WritableWireMessage {
 impl<T: WritableWireMessage + ?Sized> WritableWireMessageExt for T {}
 
 #[derive(Debug, Clone)]
-struct LengthCounter {
+pub(super) struct LengthCounter {
     length: usize,
+}
+
+impl LengthCounter {
+    pub(super) fn new() -> Self {
+        Self { length: 0 }
+    }
+
+    pub(super) fn length(&self) -> usize {
+        self.length
+    }
 }
 
 impl io::Write for LengthCounter {
