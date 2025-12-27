@@ -109,7 +109,7 @@ impl<'a> Scanner<'a> {
 
         let start = self.position;
         self.position += count;
-        Ok(&self.data[start..start + self.position])
+        Ok(&self.data[start..self.position])
     }
 
     pub(super) fn read_remaining_bytes(&mut self) -> &'a [u8] {
@@ -165,6 +165,8 @@ pub(super) enum WireFormatError {
     UnknownTypeByte { type_byte: u8 },
     #[error("unknown authentication type: {auth_type}")]
     UnknownAuthType { auth_type: u32 },
+    #[error("got message length less than 4")]
+    LengthTooShort,
     #[error("unexpected end of message")]
     UnexpectedEof,
     #[error("invalid UTF-8 sequence")]

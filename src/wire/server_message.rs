@@ -174,38 +174,38 @@ impl ServerWireMessage {
             // Startup responses
             ServerWireMessage::AuthenticationOk => {
                 let type_byte = TYPE_BYTE_AUTHENTICATION;
-                writer.write_all(&AUTH_TYPE_OK.to_be_bytes())?;
+                writer.write_u32(AUTH_TYPE_OK)?;
                 Ok(type_byte)
             }
             ServerWireMessage::AuthenticationCleartextPassword => {
                 let type_byte = TYPE_BYTE_AUTHENTICATION;
-                writer.write_all(&AUTH_TYPE_CLEARTEXT_PASSWORD.to_be_bytes())?;
+                writer.write_u32(AUTH_TYPE_CLEARTEXT_PASSWORD)?;
                 Ok(type_byte)
             }
             ServerWireMessage::AuthenticationMD5Password { salt } => {
                 let type_byte = TYPE_BYTE_AUTHENTICATION;
-                writer.write_all(&AUTH_TYPE_MD5_PASSWORD.to_be_bytes())?;
+                writer.write_u32(AUTH_TYPE_MD5_PASSWORD)?;
                 writer.write_all(salt)?;
                 Ok(type_byte)
             }
             ServerWireMessage::AuthenticationKerberosV5 => {
                 let type_byte = TYPE_BYTE_AUTHENTICATION;
-                writer.write_all(&AUTH_TYPE_KERBEROS_V5.to_be_bytes())?;
+                writer.write_u32(AUTH_TYPE_KERBEROS_V5)?;
                 Ok(type_byte)
             }
             ServerWireMessage::AuthenticationGSS => {
                 let type_byte = TYPE_BYTE_AUTHENTICATION;
-                writer.write_all(&AUTH_TYPE_GSS.to_be_bytes())?;
+                writer.write_u32(AUTH_TYPE_GSS)?;
                 Ok(type_byte)
             }
             ServerWireMessage::AuthenticationSSPI => {
                 let type_byte = TYPE_BYTE_AUTHENTICATION;
-                writer.write_all(&AUTH_TYPE_SSPI.to_be_bytes())?;
+                writer.write_u32(AUTH_TYPE_SSPI)?;
                 Ok(type_byte)
             }
             ServerWireMessage::AuthenticationSASL { mechanisms } => {
                 let type_byte = TYPE_BYTE_AUTHENTICATION;
-                writer.write_all(&AUTH_TYPE_SASL.to_be_bytes())?;
+                writer.write_u32(AUTH_TYPE_SASL)?;
                 for mechanism in mechanisms {
                     if mechanism == "" {
                         return Err(io::Error::new(
@@ -235,22 +235,60 @@ impl ServerWireMessage {
             // Continuation of authentication
             ServerWireMessage::AuthenticationGSSContinue { data } => {
                 let type_byte = TYPE_BYTE_AUTHENTICATION;
+                writer.write_u32(AUTH_TYPE_GSS_CONTINUE)?;
                 writer.write_all(data)?;
                 Ok(type_byte)
             }
             ServerWireMessage::AuthenticationSASLContinue { data } => {
                 let type_byte = TYPE_BYTE_AUTHENTICATION;
+                writer.write_u32(AUTH_TYPE_SASL_CONTINUE)?;
                 writer.write_all(data)?;
                 Ok(type_byte)
             }
             ServerWireMessage::AuthenticationSASLFinal { data } => {
                 let type_byte = TYPE_BYTE_AUTHENTICATION;
+                writer.write_u32(AUTH_TYPE_SASL_FINAL)?;
                 writer.write_all(data)?;
                 Ok(type_byte)
             }
 
             _ => unimplemented!("write_body_to not implemented for {:?}", self),
         }
+    }
+
+    fn parse(buf: &[u8]) -> Result<Self, WireFormatError> {
+        let (msg, consumed) = Self::parse_prefix(buf)?;
+        if consumed < buf.len() {
+            return Err(WireFormatError::ExtraBytes);
+        }
+        Ok(msg)
+    }
+
+    fn bytes_required(buf: &[u8]) -> usize {
+        if buf.len() < 5 {
+            return 5;
+        }
+        let len = u32::from_be_bytes(buf[1..5].try_into().unwrap()) as usize;
+        len.max(4) + 1
+    }
+
+    /// Parses a server wire message at the start of `buf`.
+    /// Expects that `buf.len() >= bytes_required(buf)`.
+    fn parse_prefix(buf: &[u8]) -> Result<(Self, usize), WireFormatError> {
+        if buf.len() < 5 {
+            return Err(WireFormatError::UnexpectedEof);
+        }
+        let type_byte = buf[0];
+        let length = u32::from_be_bytes(buf[1..5].try_into().unwrap()) as usize;
+        if length < 4 {
+            return Err(WireFormatError::LengthTooShort);
+        }
+        if buf.len() < length + 1 {
+            return Err(WireFormatError::UnexpectedEof);
+        }
+        let body = &buf[5..length + 1];
+        let msg = Self::parse_body(type_byte, body)?;
+        Ok((msg, length + 1))
     }
 
     fn parse_body(type_byte: u8, body: &[u8]) -> Result<Self, WireFormatError> {
@@ -374,4 +412,179 @@ struct RowDescriptionField {
 enum OverallCopyFormat {
     Text,
     Binary,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn write_msg(msg: &ServerWireMessage) -> Vec<u8> {
+        let mut buf = Vec::new();
+        msg.write_to(&mut buf).unwrap();
+        buf
+    }
+
+    fn parse_msg(buf: &[u8]) -> ServerWireMessage {
+        ServerWireMessage::parse(buf).unwrap()
+    }
+
+    #[test]
+    fn test_write_authentication_ok() {
+        assert_eq!(
+            write_msg(&ServerWireMessage::AuthenticationOk),
+            b"R\x00\x00\x00\x08\x00\x00\x00\x00"
+        );
+    }
+
+    #[test]
+    fn test_parse_authentication_ok() {
+        assert_eq!(
+            parse_msg(b"R\x00\x00\x00\x08\x00\x00\x00\x00"),
+            ServerWireMessage::AuthenticationOk
+        );
+    }
+
+    #[test]
+    fn test_write_authentication_md5_password() {
+        assert_eq!(
+            write_msg(&ServerWireMessage::AuthenticationMD5Password { salt: [1, 2, 3, 4] }),
+            b"R\x00\x00\x00\x0c\x00\x00\x00\x05\x01\x02\x03\x04"
+        );
+    }
+
+    #[test]
+    fn test_parse_authentication_md5_password() {
+        assert_eq!(
+            parse_msg(b"R\x00\x00\x00\x0c\x00\x00\x00\x05\x01\x02\x03\x04"),
+            ServerWireMessage::AuthenticationMD5Password { salt: [1, 2, 3, 4] }
+        );
+    }
+
+    #[test]
+    fn test_write_authentication_kerberos_v5() {
+        assert_eq!(
+            write_msg(&ServerWireMessage::AuthenticationKerberosV5),
+            b"R\x00\x00\x00\x08\x00\x00\x00\x02"
+        );
+    }
+
+    #[test]
+    fn test_parse_authentication_kerberos_v5() {
+        assert_eq!(
+            parse_msg(b"R\x00\x00\x00\x08\x00\x00\x00\x02"),
+            ServerWireMessage::AuthenticationKerberosV5
+        );
+    }
+
+    #[test]
+    fn test_write_authentication_gss() {
+        assert_eq!(
+            write_msg(&ServerWireMessage::AuthenticationGSS),
+            b"R\x00\x00\x00\x08\x00\x00\x00\x07"
+        );
+    }
+
+    #[test]
+    fn test_parse_authentication_gss() {
+        assert_eq!(
+            parse_msg(b"R\x00\x00\x00\x08\x00\x00\x00\x07"),
+            ServerWireMessage::AuthenticationGSS
+        );
+    }
+
+    #[test]
+    fn test_write_authentication_gss_continue() {
+        assert_eq!(
+            write_msg(&ServerWireMessage::AuthenticationGSSContinue {
+                data: vec![1, 2, 3, 4, 5]
+            }),
+            b"R\x00\x00\x00\r\x00\x00\x00\x08\x01\x02\x03\x04\x05"
+        );
+    }
+
+    #[test]
+    fn test_parse_authentication_gss_continue() {
+        assert_eq!(
+            parse_msg(b"R\x00\x00\x00\r\x00\x00\x00\x08\x01\x02\x03\x04\x05"),
+            ServerWireMessage::AuthenticationGSSContinue {
+                data: vec![1, 2, 3, 4, 5]
+            }
+        );
+    }
+
+    #[test]
+    fn test_write_authentication_sspi() {
+        assert_eq!(
+            write_msg(&ServerWireMessage::AuthenticationSSPI),
+            b"R\x00\x00\x00\x08\x00\x00\x00\x09"
+        );
+    }
+
+    #[test]
+    fn test_parse_authentication_sspi() {
+        assert_eq!(
+            parse_msg(b"R\x00\x00\x00\x08\x00\x00\x00\x09"),
+            ServerWireMessage::AuthenticationSSPI
+        );
+    }
+
+    #[test]
+    fn test_write_authentication_sasl() {
+        assert_eq!(
+            write_msg(&ServerWireMessage::AuthenticationSASL {
+                mechanisms: vec!["SCRAM-SHA-256".to_string(), "PLAIN".to_string()]
+            }),
+            b"R\x00\x00\x00\x1d\x00\x00\x00\nSCRAM-SHA-256\x00PLAIN\x00\x00"
+        );
+    }
+
+    #[test]
+    fn test_parse_authentication_sasl() {
+        assert_eq!(
+            parse_msg(b"R\x00\x00\x00\x1d\x00\x00\x00\nSCRAM-SHA-256\x00PLAIN\x00\x00"),
+            ServerWireMessage::AuthenticationSASL {
+                mechanisms: vec!["SCRAM-SHA-256".to_string(), "PLAIN".to_string()]
+            }
+        );
+    }
+
+    #[test]
+    fn test_write_authentication_sasl_continue() {
+        assert_eq!(
+            write_msg(&ServerWireMessage::AuthenticationSASLContinue {
+                data: vec![1, 2, 3, 4, 5]
+            }),
+            b"R\x00\x00\x00\r\x00\x00\x00\x0b\x01\x02\x03\x04\x05"
+        );
+    }
+
+    #[test]
+    fn test_parse_authentication_sasl_continue() {
+        assert_eq!(
+            parse_msg(b"R\x00\x00\x00\r\x00\x00\x00\x0b\x01\x02\x03\x04\x05"),
+            ServerWireMessage::AuthenticationSASLContinue {
+                data: vec![1, 2, 3, 4, 5]
+            }
+        );
+    }
+
+    #[test]
+    fn test_write_authentication_sasl_final() {
+        assert_eq!(
+            write_msg(&ServerWireMessage::AuthenticationSASLFinal {
+                data: vec![1, 2, 3, 4, 5]
+            }),
+            b"R\x00\x00\x00\x0D\x00\x00\x00\x0C\x01\x02\x03\x04\x05"
+        );
+    }
+
+    #[test]
+    fn test_parse_authentication_sasl_final() {
+        assert_eq!(
+            parse_msg(b"R\x00\x00\x00\x0D\x00\x00\x00\x0C\x01\x02\x03\x04\x05"),
+            ServerWireMessage::AuthenticationSASLFinal {
+                data: vec![1, 2, 3, 4, 5]
+            }
+        );
+    }
 }
