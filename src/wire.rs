@@ -8,9 +8,7 @@ enum ServerWireMessage {
     /// Startup response -- request for cleartext password
     AuthenticationCleartextPassword,
     /// Startup response -- request for MD5-hashed password
-    AuthenticationMD5Password {
-        salt: [u8; 4],
-    },
+    AuthenticationMD5Password { salt: [u8; 4] },
     /// Startup response -- part of Kerberos V5 authentication.
     /// No longer supported by the current version of PostgreSQL.
     AuthenticationKerberosV5,
@@ -19,9 +17,7 @@ enum ServerWireMessage {
     /// Startup response -- part of SSPI authentication.
     AuthenticationSSPI,
     /// Startup response -- request for SASL authentication
-    AuthenticationSASL {
-        mechanisms: Vec<String>,
-    },
+    AuthenticationSASL { mechanisms: Vec<String> },
     NegotiateProtocolVersion {
         major: u16,
         minor: u16,
@@ -30,77 +26,90 @@ enum ServerWireMessage {
 
     // Continuation of authentication
     /// Authentication continuation -- part of GSSAPI authentication.
-    AuthenticationGSSContinue {
-        data: Vec<u8>,
-    },
+    AuthenticationGSSContinue { data: Vec<u8> },
     /// Authentication continuation -- part of SSPI authentication.
-    AuthenticationSASLContinue {
-        data: Vec<u8>,
-    },
+    AuthenticationSASLContinue { data: Vec<u8> },
     /// Authentication continuation -- part of SASL authentication.
-    AuthenticationSASLFinal {
-        data: Vec<u8>,
-    },
+    AuthenticationSASLFinal { data: Vec<u8> },
 
+    // Backend startup
+    /// Backend startup -- secret key data for canceling a running query
     BackendKeyData {
         process_id: i32,
         secret_key: Vec<u8>,
     },
-    BindComplete,
-    CloseComplete,
-    CommandComplete {
-        command: String,
-        rows: Option<i64>,
+    /// Backend startup -- indicates that the backend is ready for queries.
+    /// Also issued after each command.
+    ReadyForQuery {
+        transaction_status: TransactionStatus,
     },
-    CopyData {
-        data: Vec<u8>,
-    },
-    CopyDone,
+
+    // Query responses
+    /// Query response -- description of the rows returned by a query.
+    /// Also issued after Describe messages.
+    RowDescription { fields: Vec<RowDescriptionField> },
+    /// Query response -- a single row of data returned by a query.
+    DataRow { columns: Vec<Option<Vec<u8>>> },
+    /// Query response -- command completion notification
+    CommandComplete { command: String, rows: Option<i64> },
+    /// Query response -- indicates that the query is empty.
+    EmptyQueryResponse,
+    /// Kind of query response -- result of a legacy function call
+    /// request.
+    FunctionCallResponse { result: Option<Vec<u8>> },
+
+    // Copy responses
+    /// Query response -- indicates that the query will copy data
+    /// to the server.
     CopyInResponse {
         overall_format: OverallCopyFormat,
         column_formats: Vec<ColumnFormat>,
     },
+    /// Query response -- indicates that the query will copy data
+    /// from the server.
     CopyOutResponse {
         overall_format: OverallCopyFormat,
         column_formats: Vec<ColumnFormat>,
     },
+    /// Query response -- indicates that the query will copy data
+    /// in both directions.
     CopyBothResponse {
         overall_format: OverallCopyFormat,
         column_formats: Vec<ColumnFormat>,
     },
-    DataRow {
-        columns: Vec<Option<Vec<u8>>>,
-    },
-    EmptyQueryResponse,
-    ErrorResponse {
-        error: DiagnosticMessage,
-    },
-    FunctionCallResponse {
-        result: Option<Vec<u8>>,
-    },
+    /// Copy data message -- a chunk of data being copied
+    CopyData { data: Vec<u8> },
+    /// Copy done message -- indicates the end of a copy operation
+    CopyDone,
+
+    // Extended query protocol support
+    /// Extended query -- parse completion notification
+    ParseComplete,
+    /// Extended query -- bind completion notification
+    BindComplete,
+    /// Extended query -- portal suspended notification
+    PortalSuspended,
+    /// Extended query -- description of a prepared statement
+    ParameterDescription { parameter_types: Vec<u32> },
+    /// Extended query -- description of a prepared statement
     NoData,
-    NoticeResponse {
-        notice: DiagnosticMessage,
-    },
+    /// Extended query -- close completion notification
+    CloseComplete,
+
+    // Asynchronous messages and general responses
+    /// Asynchronous message -- server parameter status update
+    ParameterStatus { parameter: String, value: String },
+    /// General error response.
+    ErrorResponse { error: DiagnosticMessage },
+    /// Asynchronous message -- non-error notice from the server
+    NoticeResponse { notice: DiagnosticMessage },
+    /// Asynchronous message -- notification of an event
+    /// that the client has LISTENed for by another session
+    /// issueing a NOTIFY command.
     NotificationResponse {
         process_id: i32,
         channel: String,
         payload: String,
-    },
-    ParameterDescription {
-        parameter_types: Vec<u32>,
-    },
-    ParameterStatus {
-        parameter: String,
-        value: String,
-    },
-    ParseComplete,
-    PortalSuspended,
-    ReadyForQuery {
-        transaction_status: TransactionStatus,
-    },
-    RowDescription {
-        fields: Vec<RowDescriptionField>,
     },
 }
 
@@ -180,62 +189,62 @@ enum ClientWireMessage {
 
     // Authentication continuation
     /// Authentication continuation -- cleartext or MD5-hashed password
-    PasswordMessage {
-        password: String,
-    },
+    PasswordMessage { password: String },
     /// Authentication continuation -- part of GSSAPI or SSPI authentication.
-    GSSResponse {
-        data: Vec<u8>,
-    },
+    GSSResponse { data: Vec<u8> },
     /// Authentication continuation -- part of SASL authentication.
     SASLInitialResponse {
         mechanism: String,
         initial_response: Option<Vec<u8>>,
     },
     /// Authentication continuation -- part of SASL authentication.
-    SASLResponse {
-        data: Vec<u8>,
-    },
+    SASLResponse { data: Vec<u8> },
 
-    Bind {
-        portal: String,
-        statement_name: String,
-        parameters: Vec<BindParameter>,
-    },
-    Close {
-        target: CloseTarget,
-        name: String,
-    },
-    CopyData {
-        data: Vec<u8>,
-    },
-    CopyDone,
-    CopyFail {
-        message: String,
-    },
-    Describe {
-        target: DescribeTarget,
-        name: String,
-    },
-    Execute {
-        portal: String,
-        max_rows: i32,
-    },
-    Flush,
-    FunctionCall {
-        function_oid: u32,
-        parameters: Vec<BindParameter>,
-        result_format: ColumnFormat,
-    },
+    // Queries
+    /// Issues a simple query
+    Query { query: String },
+    /// Prepares a statement for execution
     Parse {
         statement_name: String,
         query: String,
         parameter_types: Vec<u32>,
     },
-    Query {
-        query: String,
+    /// Binds a prepared statement to a portal for execution
+    Bind {
+        portal: String,
+        statement_name: String,
+        parameters: Vec<BindParameter>,
     },
+    /// Executes a portal
+    Execute { portal: String, max_rows: i32 },
+    /// Describes a prepared statement or portal
+    Describe {
+        target: DescribeTarget,
+        name: String,
+    },
+    /// Indicates the end of a series of extended query messages
     Sync,
+    /// Forces the server to send all pending results
+    Flush,
+    /// Issues a legacy function call
+    FunctionCall {
+        function_oid: u32,
+        parameters: Vec<BindParameter>,
+        result_format: ColumnFormat,
+    },
+    /// Closes a prepared statement or portal
+    Close { target: CloseTarget, name: String },
+
+    // Copy commands
+    /// Copy data message -- a chunk of data being copied
+    CopyData { data: Vec<u8> },
+    /// Copy done message -- indicates the end of a copy operation
+    CopyDone,
+    /// Copy fail message -- indicates that a copy operation failed
+    CopyFail { message: String },
+
+    // Connection termination
+    /// Terminates the connection
     Terminate,
 }
 
