@@ -3,7 +3,9 @@
 
 use std::io;
 
-use crate::wire::message_common::{ColumnFormat, LengthCounter, WriteExt};
+use crate::wire::message_common::{
+    ColumnFormat, LengthCounter, Scanner, WireFormatError, WriteExt,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 enum ServerWireMessage {
@@ -249,6 +251,70 @@ impl ServerWireMessage {
 
             _ => unimplemented!("write_body_to not implemented for {:?}", self),
         }
+    }
+
+    fn parse_body(type_byte: u8, body: &[u8]) -> Result<Self, WireFormatError> {
+        let mut scanner = Scanner::new(body);
+        let msg = match type_byte {
+            TYPE_BYTE_AUTHENTICATION => {
+                let auth_type = scanner.read_u32()?;
+                match auth_type {
+                    AUTH_TYPE_OK => ServerWireMessage::AuthenticationOk,
+                    AUTH_TYPE_CLEARTEXT_PASSWORD => {
+                        ServerWireMessage::AuthenticationCleartextPassword
+                    }
+                    AUTH_TYPE_MD5_PASSWORD => {
+                        let salt = scanner.read_bytes(4)?;
+                        let salt = <[u8; 4]>::try_from(salt).unwrap();
+                        ServerWireMessage::AuthenticationMD5Password { salt }
+                    }
+                    AUTH_TYPE_KERBEROS_V5 => ServerWireMessage::AuthenticationKerberosV5,
+                    AUTH_TYPE_GSS => ServerWireMessage::AuthenticationGSS,
+                    AUTH_TYPE_GSS_CONTINUE => {
+                        let data = scanner.read_remaining_bytes().to_owned();
+                        ServerWireMessage::AuthenticationGSSContinue { data }
+                    }
+                    AUTH_TYPE_SSPI => ServerWireMessage::AuthenticationSSPI,
+                    AUTH_TYPE_SASL => {
+                        let mut mechanisms = Vec::new();
+                        loop {
+                            let mechanism = scanner.read_cstring()?;
+                            if mechanism.is_empty() {
+                                break;
+                            }
+                            mechanisms.push(mechanism);
+                        }
+                        ServerWireMessage::AuthenticationSASL { mechanisms }
+                    }
+                    AUTH_TYPE_SASL_CONTINUE => {
+                        let data = scanner.read_remaining_bytes().to_owned();
+                        ServerWireMessage::AuthenticationSASLContinue { data }
+                    }
+                    AUTH_TYPE_SASL_FINAL => {
+                        let data = scanner.read_remaining_bytes().to_owned();
+                        ServerWireMessage::AuthenticationSASLFinal { data }
+                    }
+                    _ => return Err(WireFormatError::UnknownAuthType { auth_type }),
+                }
+            }
+            TYPE_BYTE_NEGOTIATE_PROTOCOL_VERSION => {
+                let (major, minor) = scanner.read_version()?;
+                let option_count = scanner.read_u32()?;
+                let mut unrecognized_options = Vec::with_capacity(option_count as usize);
+                for _ in 0..option_count {
+                    let option = scanner.read_cstring()?;
+                    unrecognized_options.push(option);
+                }
+                ServerWireMessage::NegotiateProtocolVersion {
+                    major,
+                    minor,
+                    unrecognized_options,
+                }
+            }
+            _ => return Err(WireFormatError::UnknownTypeByte { type_byte }),
+        };
+        scanner.read_eof()?;
+        Ok(msg)
     }
 }
 

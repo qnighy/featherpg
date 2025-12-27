@@ -135,6 +135,22 @@ impl<'a> Scanner<'a> {
         Ok(s)
     }
 
+    pub(super) fn read_u32(&mut self) -> Result<u32, WireFormatError> {
+        let bytes = self.read_bytes(4)?;
+        let value = u32::from_be_bytes(bytes.try_into().unwrap());
+        Ok(value)
+    }
+
+    pub(super) fn read_version(&mut self) -> Result<(u16, u16), WireFormatError> {
+        let major_bytes = self.read_bytes(2)?;
+        let minor_bytes = self.read_bytes(2)?;
+
+        let major = u16::from_be_bytes(major_bytes.try_into().unwrap());
+        let minor = u16::from_be_bytes(minor_bytes.try_into().unwrap());
+
+        Ok((major, minor))
+    }
+
     pub(super) fn read_eof(&self) -> Result<(), WireFormatError> {
         if self.position < self.data.len() {
             return Err(WireFormatError::ExtraBytes);
@@ -147,6 +163,8 @@ impl<'a> Scanner<'a> {
 pub(super) enum WireFormatError {
     #[error("unknown type byte: {type_byte:02X}")]
     UnknownTypeByte { type_byte: u8 },
+    #[error("unknown authentication type: {auth_type}")]
+    UnknownAuthType { auth_type: u32 },
     #[error("unexpected end of message")]
     UnexpectedEof,
     #[error("invalid UTF-8 sequence")]
