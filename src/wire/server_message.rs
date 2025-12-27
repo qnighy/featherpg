@@ -1,10 +1,59 @@
 // https://www.postgresql.org/docs/current/protocol.html
 // https://www.postgresql.org/docs/current/protocol-message-formats.html
 
-use crate::wire::message_common::ColumnFormat;
+use std::io;
+
+use crate::wire::{
+    auth_message::{
+        AuthenticationCleartextPassword, AuthenticationGSS, AuthenticationKerberosV5,
+        AuthenticationMD5Password, AuthenticationOk, AuthenticationSASL,
+        AuthenticationSASLContinue, AuthenticationSASLFinal,
+    },
+    message_common::{ColumnFormat, WritableWireMessage},
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 enum ServerWireMessage {
+    AuthenticationOk(AuthenticationOk),
+    AuthenticationCleartextPassword(AuthenticationCleartextPassword),
+    AuthenticationMD5Password(AuthenticationMD5Password),
+    AuthenticationKerberosV5(AuthenticationKerberosV5),
+    AuthenticationGSS(AuthenticationGSS),
+    AuthenticationSASL(AuthenticationSASL),
+    AuthenticationSASLContinue(AuthenticationSASLContinue),
+    AuthenticationSASLFinal(AuthenticationSASLFinal),
+}
+
+impl WritableWireMessage for ServerWireMessage {
+    fn type_byte(&self) -> u8 {
+        match self {
+            ServerWireMessage::AuthenticationOk(x) => x.type_byte(),
+            ServerWireMessage::AuthenticationCleartextPassword(x) => x.type_byte(),
+            ServerWireMessage::AuthenticationMD5Password(x) => x.type_byte(),
+            ServerWireMessage::AuthenticationKerberosV5(x) => x.type_byte(),
+            ServerWireMessage::AuthenticationGSS(x) => x.type_byte(),
+            ServerWireMessage::AuthenticationSASL(x) => x.type_byte(),
+            ServerWireMessage::AuthenticationSASLContinue(x) => x.type_byte(),
+            ServerWireMessage::AuthenticationSASLFinal(x) => x.type_byte(),
+        }
+    }
+
+    fn write_body_to<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
+        match self {
+            ServerWireMessage::AuthenticationOk(x) => x.write_body_to(writer),
+            ServerWireMessage::AuthenticationCleartextPassword(x) => x.write_body_to(writer),
+            ServerWireMessage::AuthenticationMD5Password(x) => x.write_body_to(writer),
+            ServerWireMessage::AuthenticationKerberosV5(x) => x.write_body_to(writer),
+            ServerWireMessage::AuthenticationGSS(x) => x.write_body_to(writer),
+            ServerWireMessage::AuthenticationSASL(x) => x.write_body_to(writer),
+            ServerWireMessage::AuthenticationSASLContinue(x) => x.write_body_to(writer),
+            ServerWireMessage::AuthenticationSASLFinal(x) => x.write_body_to(writer),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum ServerWireMessageOld {
     // Startup responses
     /// Startup response -- successful authentication
     AuthenticationOk,

@@ -100,6 +100,8 @@ impl AuthenticationMessage for AuthenticationKerberosV5 {
     }
 }
 
+impl_authentication_message!(AuthenticationKerberosV5);
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(in crate::wire) struct AuthenticationGSS;
 
@@ -114,6 +116,8 @@ impl AuthenticationMessage for AuthenticationGSS {
         Ok(AuthenticationGSS)
     }
 }
+
+impl_authentication_message!(AuthenticationGSS);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(in crate::wire) struct AuthenticationGSSContinue;
