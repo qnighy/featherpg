@@ -2,26 +2,46 @@
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 enum ServerWireMessage {
+    // Startup responses
+    /// Startup response -- successful authentication
     AuthenticationOk,
-    AuthenticationKerberosV5,
+    /// Startup response -- request for cleartext password
     AuthenticationCleartextPassword,
+    /// Startup response -- request for MD5-hashed password
     AuthenticationMD5Password {
         salt: [u8; 4],
     },
+    /// Startup response -- part of Kerberos V5 authentication.
+    /// No longer supported by the current version of PostgreSQL.
+    AuthenticationKerberosV5,
+    /// Startup response -- part of GSSAPI authentication.
     AuthenticationGSS,
-    AuthenticationGSSContinue {
-        data: Vec<u8>,
-    },
+    /// Startup response -- part of SSPI authentication.
     AuthenticationSSPI,
+    /// Startup response -- request for SASL authentication
     AuthenticationSASL {
         mechanisms: Vec<String>,
     },
+    NegotiateProtocolVersion {
+        major: u16,
+        minor: u16,
+        unrecognized_options: Vec<String>,
+    },
+
+    // Continuation of authentication
+    /// Authentication continuation -- part of GSSAPI authentication.
+    AuthenticationGSSContinue {
+        data: Vec<u8>,
+    },
+    /// Authentication continuation -- part of SSPI authentication.
     AuthenticationSASLContinue {
         data: Vec<u8>,
     },
+    /// Authentication continuation -- part of SASL authentication.
     AuthenticationSASLFinal {
         data: Vec<u8>,
     },
+
     BackendKeyData {
         process_id: i32,
         secret_key: Vec<u8>,
@@ -57,11 +77,6 @@ enum ServerWireMessage {
     },
     FunctionCallResponse {
         result: Option<Vec<u8>>,
-    },
-    NegotiateProtocolVersion {
-        major: u16,
-        minor: u16,
-        unrecognized_options: Vec<String>,
     },
     NoData,
     NoticeResponse {
@@ -143,14 +158,49 @@ struct RowDescriptionField {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 enum ClientWireMessage {
+    // Startup messages
+    /// Startup message -- the initial message to initiate a connection
+    /// without encryption negotiation.
+    StartupMessage {
+        major: u16,
+        minor: u16,
+        parameters: Vec<StartupParameter>,
+    },
+    /// Startup message -- the initial message to initiate a connection
+    /// with SSL encryption negotiation.
+    SSLRequest,
+    /// Startup message -- the initial message to initiate a connection
+    /// with GSSAPI encryption negotiation.
+    GSSENCRequest,
+    /// Startup-like message -- used to cancel a running query.
+    CancelRequest {
+        process_id: i32,
+        secret_key: Vec<u8>,
+    },
+
+    // Authentication continuation
+    /// Authentication continuation -- cleartext or MD5-hashed password
+    PasswordMessage {
+        password: String,
+    },
+    /// Authentication continuation -- part of GSSAPI or SSPI authentication.
+    GSSResponse {
+        data: Vec<u8>,
+    },
+    /// Authentication continuation -- part of SASL authentication.
+    SASLInitialResponse {
+        mechanism: String,
+        initial_response: Option<Vec<u8>>,
+    },
+    /// Authentication continuation -- part of SASL authentication.
+    SASLResponse {
+        data: Vec<u8>,
+    },
+
     Bind {
         portal: String,
         statement_name: String,
         parameters: Vec<BindParameter>,
-    },
-    CancelRequest {
-        process_id: i32,
-        secret_key: Vec<u8>,
     },
     Close {
         target: CloseTarget,
@@ -177,33 +227,13 @@ enum ClientWireMessage {
         parameters: Vec<BindParameter>,
         result_format: ColumnFormat,
     },
-    GSSENCRequest,
-    GSSResponse {
-        data: Vec<u8>,
-    },
     Parse {
         statement_name: String,
         query: String,
         parameter_types: Vec<u32>,
     },
-    PasswordMessage {
-        password: String,
-    },
     Query {
         query: String,
-    },
-    SASLInitialResponse {
-        mechanism: String,
-        initial_response: Option<Vec<u8>>,
-    },
-    SASLResponse {
-        data: Vec<u8>,
-    },
-    SSLRequest,
-    StartupMessage {
-        major: u16,
-        minor: u16,
-        parameters: Vec<StartupParameter>,
     },
     Sync,
     Terminate,
