@@ -34,6 +34,8 @@ pub(super) trait WritableWireMessageExt: WritableWireMessage {
     }
 }
 
+impl<T: WritableWireMessage + ?Sized> WritableWireMessageExt for T {}
+
 #[derive(Debug, Clone)]
 struct LengthCounter {
     length: usize,

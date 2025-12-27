@@ -221,3 +221,23 @@ impl AuthenticationMessage for AuthenticationSASLFinal {
 }
 
 impl_authentication_message!(AuthenticationSASLFinal);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::wire::message_common::WritableWireMessageExt;
+
+    fn write_msg<M: WritableWireMessage>(msg: &M) -> Vec<u8> {
+        let mut buf = Vec::new();
+        msg.write_message_to(&mut buf).unwrap();
+        buf
+    }
+
+    #[test]
+    fn test_write_authentication_ok() {
+        assert_eq!(
+            write_msg(&AuthenticationOk),
+            b"R\x00\x00\x00\x08\x00\x00\x00\x00"
+        );
+    }
+}
