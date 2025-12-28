@@ -2,6 +2,7 @@
 // https://www.postgresql.org/docs/current/protocol-message-formats.html
 
 use crate::{
+    errors::DiagnosticMessage,
     io_util::ByteQueue,
     message_common::{
         ByteQueueWriteExt, LengthReservation, ProtocolVersion, Scanner, WireFormatError,
@@ -548,40 +549,6 @@ pub(crate) enum DescribeTarget {
 pub(crate) enum CloseTarget {
     Statement,
     Portal,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) struct DiagnosticMessage {
-    severity: DiagnosticSeverity,
-    localized_severity: String,
-    code: String,
-    message: String,
-    detail: Option<String>,
-    hint: Option<String>,
-    position: Option<i32>,
-    internal_position: Option<i32>,
-    internal_query: Option<String>,
-    where_: Option<String>,
-    schema_name: Option<String>,
-    table_name: Option<String>,
-    column_name: Option<String>,
-    data_type_name: Option<String>,
-    constraint_name: Option<String>,
-    file: Option<String>,
-    line: Option<i32>,
-    routine: Option<String>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(crate) enum DiagnosticSeverity {
-    Debug,
-    Log,
-    Info,
-    Notice,
-    Warning,
-    Error,
-    Fatal,
-    Panic,
 }
 
 #[cfg(test)]
