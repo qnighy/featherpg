@@ -5,6 +5,14 @@ use std::io;
 
 use crate::wire::message_common::{LengthCounter, Scanner, WireFormatError, WriteExt};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+enum WireState {
+    /// Ordinary message exchange state
+    Ordinary,
+    /// A special state when the server receives the startup message
+    BackendStartup,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 enum WireMessage {
     // Startup messages (frontend)
@@ -332,15 +340,15 @@ impl WireMessage {
         }
     }
 
-    fn parse(buf: &[u8]) -> Result<Self, WireFormatError> {
-        let (msg, consumed) = Self::parse_prefix(buf)?;
+    fn parse(buf: &[u8], state: WireState) -> Result<Self, WireFormatError> {
+        let (msg, consumed) = Self::parse_prefix(buf, state)?;
         if consumed < buf.len() {
             return Err(WireFormatError::ExtraBytes);
         }
         Ok(msg)
     }
 
-    fn bytes_required(buf: &[u8]) -> usize {
+    fn bytes_required(buf: &[u8], state: WireState) -> usize {
         if buf.len() < 5 {
             return 5;
         }
@@ -350,7 +358,7 @@ impl WireMessage {
 
     /// Parses a server wire message at the start of `buf`.
     /// Expects that `buf.len() >= bytes_required(buf)`.
-    fn parse_prefix(buf: &[u8]) -> Result<(Self, usize), WireFormatError> {
+    fn parse_prefix(buf: &[u8], state: WireState) -> Result<(Self, usize), WireFormatError> {
         if buf.len() < 5 {
             return Err(WireFormatError::UnexpectedEof);
         }
@@ -528,8 +536,8 @@ mod tests {
         buf
     }
 
-    fn parse_msg(buf: &[u8]) -> WireMessage {
-        WireMessage::parse(buf).unwrap()
+    fn parse_msg(buf: &[u8], state: WireState) -> WireMessage {
+        WireMessage::parse(buf, state).unwrap()
     }
 
     #[test]
@@ -543,7 +551,7 @@ mod tests {
     #[test]
     fn test_parse_authentication_ok() {
         assert_eq!(
-            parse_msg(b"R\x00\x00\x00\x08\x00\x00\x00\x00"),
+            parse_msg(b"R\x00\x00\x00\x08\x00\x00\x00\x00", WireState::Ordinary),
             WireMessage::AuthenticationOk
         );
     }
@@ -559,7 +567,10 @@ mod tests {
     #[test]
     fn test_parse_authentication_md5_password() {
         assert_eq!(
-            parse_msg(b"R\x00\x00\x00\x0c\x00\x00\x00\x05\x01\x02\x03\x04"),
+            parse_msg(
+                b"R\x00\x00\x00\x0c\x00\x00\x00\x05\x01\x02\x03\x04",
+                WireState::Ordinary
+            ),
             WireMessage::AuthenticationMD5Password { salt: [1, 2, 3, 4] }
         );
     }
@@ -575,7 +586,7 @@ mod tests {
     #[test]
     fn test_parse_authentication_kerberos_v5() {
         assert_eq!(
-            parse_msg(b"R\x00\x00\x00\x08\x00\x00\x00\x02"),
+            parse_msg(b"R\x00\x00\x00\x08\x00\x00\x00\x02", WireState::Ordinary),
             WireMessage::AuthenticationKerberosV5
         );
     }
@@ -591,7 +602,7 @@ mod tests {
     #[test]
     fn test_parse_authentication_gss() {
         assert_eq!(
-            parse_msg(b"R\x00\x00\x00\x08\x00\x00\x00\x07"),
+            parse_msg(b"R\x00\x00\x00\x08\x00\x00\x00\x07", WireState::Ordinary),
             WireMessage::AuthenticationGSS
         );
     }
@@ -609,7 +620,10 @@ mod tests {
     #[test]
     fn test_parse_authentication_gss_continue() {
         assert_eq!(
-            parse_msg(b"R\x00\x00\x00\r\x00\x00\x00\x08\x01\x02\x03\x04\x05"),
+            parse_msg(
+                b"R\x00\x00\x00\r\x00\x00\x00\x08\x01\x02\x03\x04\x05",
+                WireState::Ordinary
+            ),
             WireMessage::AuthenticationGSSContinue {
                 data: vec![1, 2, 3, 4, 5]
             }
@@ -627,7 +641,7 @@ mod tests {
     #[test]
     fn test_parse_authentication_sspi() {
         assert_eq!(
-            parse_msg(b"R\x00\x00\x00\x08\x00\x00\x00\x09"),
+            parse_msg(b"R\x00\x00\x00\x08\x00\x00\x00\x09", WireState::Ordinary),
             WireMessage::AuthenticationSSPI
         );
     }
@@ -645,7 +659,10 @@ mod tests {
     #[test]
     fn test_parse_authentication_sasl() {
         assert_eq!(
-            parse_msg(b"R\x00\x00\x00\x1d\x00\x00\x00\nSCRAM-SHA-256\x00PLAIN\x00\x00"),
+            parse_msg(
+                b"R\x00\x00\x00\x1d\x00\x00\x00\nSCRAM-SHA-256\x00PLAIN\x00\x00",
+                WireState::Ordinary
+            ),
             WireMessage::AuthenticationSASL {
                 mechanisms: vec!["SCRAM-SHA-256".to_string(), "PLAIN".to_string()]
             }
@@ -665,7 +682,10 @@ mod tests {
     #[test]
     fn test_parse_authentication_sasl_continue() {
         assert_eq!(
-            parse_msg(b"R\x00\x00\x00\r\x00\x00\x00\x0b\x01\x02\x03\x04\x05"),
+            parse_msg(
+                b"R\x00\x00\x00\r\x00\x00\x00\x0b\x01\x02\x03\x04\x05",
+                WireState::Ordinary
+            ),
             WireMessage::AuthenticationSASLContinue {
                 data: vec![1, 2, 3, 4, 5]
             }
@@ -685,7 +705,10 @@ mod tests {
     #[test]
     fn test_parse_authentication_sasl_final() {
         assert_eq!(
-            parse_msg(b"R\x00\x00\x00\x0D\x00\x00\x00\x0C\x01\x02\x03\x04\x05"),
+            parse_msg(
+                b"R\x00\x00\x00\x0D\x00\x00\x00\x0C\x01\x02\x03\x04\x05",
+                WireState::Ordinary
+            ),
             WireMessage::AuthenticationSASLFinal {
                 data: vec![1, 2, 3, 4, 5]
             }
