@@ -11,13 +11,13 @@ use crate::wire::io_util::ByteQueue;
 ///
 /// PostgreSQL uses the versions 3.0 to 3.2 for the frontend/backend protocol.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(super) struct ProtocolVersion {
-    pub(super) major: u16,
-    pub(super) minor: u16,
+pub struct ProtocolVersion {
+    pub major: u16,
+    pub minor: u16,
 }
 
 impl ProtocolVersion {
-    pub(super) const fn new(major: u16, minor: u16) -> Self {
+    pub const fn new(major: u16, minor: u16) -> Self {
         Self { major, minor }
     }
 }

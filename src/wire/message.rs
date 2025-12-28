@@ -497,61 +497,61 @@ impl WireMessage {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct StartupParameter {
-    name: String,
-    value: String,
+pub(in crate::wire) struct StartupParameter {
+    pub(in crate::wire) name: String,
+    pub(in crate::wire) value: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-enum TransactionStatus {
+pub(in crate::wire) enum TransactionStatus {
     Idle,
     InTransaction,
     InFailedTransaction,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-enum BindParameter {
+pub(in crate::wire) enum BindParameter {
     Text(String),
     Binary(Vec<u8>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-enum ColumnFormat {
+pub(in crate::wire) enum ColumnFormat {
     Text,
     Binary,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct RowDescriptionField {
-    name: String,
-    table_oid: u32,
-    column_attr_number: u16,
-    data_type_oid: u32,
-    data_type_size: i16,
-    type_modifier: i32,
-    format: ColumnFormat,
+pub(in crate::wire) struct RowDescriptionField {
+    pub(in crate::wire) name: String,
+    pub(in crate::wire) table_oid: u32,
+    pub(in crate::wire) column_attr_number: u16,
+    pub(in crate::wire) data_type_oid: u32,
+    pub(in crate::wire) data_type_size: i16,
+    pub(in crate::wire) type_modifier: i32,
+    pub(in crate::wire) format: ColumnFormat,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-enum OverallCopyFormat {
+pub(in crate::wire) enum OverallCopyFormat {
     Text,
     Binary,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-enum DescribeTarget {
+pub(in crate::wire) enum DescribeTarget {
     Statement,
     Portal,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-enum CloseTarget {
+pub(in crate::wire) enum CloseTarget {
     Statement,
     Portal,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct DiagnosticMessage {
+pub(in crate::wire) struct DiagnosticMessage {
     severity: DiagnosticSeverity,
     localized_severity: String,
     code: String,
@@ -573,7 +573,7 @@ struct DiagnosticMessage {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-enum DiagnosticSeverity {
+pub(in crate::wire) enum DiagnosticSeverity {
     Debug,
     Log,
     Info,

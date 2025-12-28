@@ -6,7 +6,7 @@ use std::{
 use crate::wire::{
     io_util::ByteQueue,
     message::{WireMessage, WireState},
-    message_common::ByteQueueWriteExt,
+    message_common::{ByteQueueWriteExt, ProtocolVersion},
 };
 
 static NEXT_WIRE_SERVER_ID: AtomicU64 = AtomicU64::new(1);
@@ -63,8 +63,21 @@ impl WireServer {
 
     fn process_message(&mut self, msg: WireMessage) {
         match msg {
-            WireMessage::StartupMessage { .. } => {
-                todo!();
+            WireMessage::StartupMessage {
+                version,
+                parameters,
+            } => {
+                let req = ServerWireRequest::StartupRequest(
+                    ServerStartupRequest {
+                        protocol_version: version,
+                        parameters: parameters
+                            .into_iter()
+                            .map(|pair| (pair.name, pair.value))
+                            .collect(),
+                    },
+                    ServerStartupResponder(self.next_untyped_responder()),
+                );
+                self.request_queue.push_back(req);
             }
             WireMessage::SSLRequest => {
                 self.pending_upgrade = true;
@@ -88,6 +101,10 @@ impl WireServer {
 
     pub fn consume_write(&mut self, count: usize) {
         self.write_queue.consume(count);
+    }
+
+    fn write_message(&mut self, msg: WireMessage) {
+        msg.write_to(&mut self.write_queue);
     }
 
     fn consume_responder(&mut self, responder: UntypedResponder) {
@@ -120,7 +137,25 @@ struct UntypedResponder {
 
 #[derive(Debug)]
 pub enum ServerWireRequest {
+    StartupRequest(ServerStartupRequest, ServerStartupResponder),
     SSLRequest(ServerSSLRequest, ServerSSLResponder),
+}
+
+#[derive(Debug, Clone)]
+pub struct ServerStartupRequest {
+    pub protocol_version: ProtocolVersion,
+    pub parameters: Vec<(String, String)>,
+}
+
+#[derive(Debug)]
+pub struct ServerStartupResponder(UntypedResponder);
+
+impl ServerStartupResponder {
+    pub fn respond_ok(self, server: &mut WireServer) {
+        server.consume_responder(self.0);
+
+        server.write_message(WireMessage::AuthenticationOk);
+    }
 }
 
 #[derive(Debug, Clone)]

@@ -1,5 +1,6 @@
 // https://www.postgresql.org/docs/current/protocol.html
 
+pub use crate::wire::message_common::ProtocolVersion;
 pub use crate::wire::server_state::{
     ServerSSLRequest, ServerSSLResponder, ServerWireRequest, UpgradeConnection, WireServer,
 };
