@@ -9,7 +9,7 @@ use crate::wire::{
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-enum WireState {
+pub(in crate::wire) enum WireState {
     /// Ordinary message exchange state
     Ordinary,
     /// A special state when the server receives the startup message
@@ -17,7 +17,7 @@ enum WireState {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-enum WireMessage {
+pub(in crate::wire) enum WireMessage {
     // Startup messages (frontend)
     /// Startup message (frontend) -- the initial message to initiate a connection
     /// without encryption negotiation.
@@ -247,7 +247,7 @@ const AUTH_TYPE_SASL_CONTINUE: u32 = 11;
 const AUTH_TYPE_SASL_FINAL: u32 = 12;
 
 impl WireMessage {
-    fn write_to(&self, writer: &mut ByteQueue) {
+    pub(in crate::wire) fn write_to(&self, writer: &mut ByteQueue) {
         let mut res: LengthReservation;
         match self {
             // Startup messages
@@ -370,7 +370,7 @@ impl WireMessage {
         Ok(msg)
     }
 
-    fn bytes_required(buf: &[u8], state: WireState) -> usize {
+    pub(in crate::wire) fn bytes_required(buf: &[u8], state: WireState) -> usize {
         let offset = match state {
             WireState::Ordinary => 1,
             WireState::BackendStartup => 0,
@@ -385,7 +385,10 @@ impl WireMessage {
 
     /// Parses a server wire message at the start of `buf`.
     /// Expects that `buf.len() >= bytes_required(buf)`.
-    fn parse_prefix(buf: &[u8], state: WireState) -> Result<(Self, usize), WireFormatError> {
+    pub(in crate::wire) fn parse_prefix(
+        buf: &[u8],
+        state: WireState,
+    ) -> Result<(Self, usize), WireFormatError> {
         let offset = match state {
             WireState::Ordinary => 1,
             WireState::BackendStartup => 0,
