@@ -204,6 +204,7 @@ enum WireMessage {
     },
 }
 
+const NO_TYPE_BYTE: u8 = b'\0';
 const TYPE_BYTE_AUTHENTICATION: u8 = b'R';
 const TYPE_BYTE_NEGOTIATE_PROTOCOL_VERSION: u8 = b'v';
 const TYPE_BYTE_BACKEND_KEY_DATA: u8 = b'K';
@@ -229,6 +230,10 @@ const TYPE_BYTE_ERROR_RESPONSE: u8 = b'E';
 const TYPE_BYTE_NOTICE_RESPONSE: u8 = b'N';
 const TYPE_BYTE_NOTIFICATION_RESPONSE: u8 = b'A';
 
+const VERSION_SSL_REQUEST: (u16, u16) = (1234, 5679);
+const VERSION_GSSENC_REQUEST: (u16, u16) = (1234, 5680);
+const VERSION_CANCEL_REQUEST: (u16, u16) = (1234, 5678);
+
 const AUTH_TYPE_OK: u32 = 0;
 const AUTH_TYPE_CLEARTEXT_PASSWORD: u32 = 3;
 const AUTH_TYPE_MD5_PASSWORD: u32 = 5;
@@ -246,7 +251,9 @@ impl WireMessage {
         let type_byte = self.write_body_to(&mut length_counter)?;
         let total_length = u32::try_from(length_counter.length() + 4).unwrap();
 
-        writer.write_all(&[type_byte])?;
+        if type_byte != NO_TYPE_BYTE {
+            writer.write_all(&[type_byte])?;
+        }
         writer.write_all(&total_length.to_be_bytes())?;
         self.write_body_to(writer)?;
 
@@ -255,6 +262,38 @@ impl WireMessage {
 
     fn write_body_to<W: io::Write>(&self, writer: &mut W) -> io::Result<u8> {
         match self {
+            // Startup messages
+            WireMessage::StartupMessage {
+                major,
+                minor,
+                parameters,
+            } => {
+                writer.write_version(*major, *minor)?;
+                for param in parameters {
+                    writer.write_cstring(&param.name)?;
+                    writer.write_cstring(&param.value)?;
+                }
+                writer.write_cstring("")?;
+                Ok(NO_TYPE_BYTE)
+            }
+            WireMessage::SSLRequest => {
+                writer.write_version(VERSION_SSL_REQUEST.0, VERSION_SSL_REQUEST.1)?;
+                Ok(NO_TYPE_BYTE)
+            }
+            WireMessage::GSSENCRequest => {
+                writer.write_version(VERSION_GSSENC_REQUEST.0, VERSION_GSSENC_REQUEST.1)?;
+                Ok(NO_TYPE_BYTE)
+            }
+            WireMessage::CancelRequest {
+                process_id,
+                secret_key,
+            } => {
+                writer.write_version(VERSION_CANCEL_REQUEST.0, VERSION_CANCEL_REQUEST.1)?;
+                writer.write_u32(*process_id as u32)?;
+                writer.write_all(secret_key)?;
+                Ok(NO_TYPE_BYTE)
+            }
+
             // Startup responses
             WireMessage::AuthenticationOk => {
                 let type_byte = TYPE_BYTE_AUTHENTICATION;
@@ -349,35 +388,79 @@ impl WireMessage {
     }
 
     fn bytes_required(buf: &[u8], state: WireState) -> usize {
-        if buf.len() < 5 {
-            return 5;
+        let offset = match state {
+            WireState::Ordinary => 1,
+            WireState::BackendStartup => 0,
+        };
+        if buf.len() < offset + 4 {
+            return offset + 4;
         }
-        let len = u32::from_be_bytes(buf[1..5].try_into().unwrap()) as usize;
-        len.max(4) + 1
+        let bufoff = &buf[offset..];
+        let len = u32::from_be_bytes(bufoff[..4].try_into().unwrap()) as usize;
+        offset + len.max(4)
     }
 
     /// Parses a server wire message at the start of `buf`.
     /// Expects that `buf.len() >= bytes_required(buf)`.
     fn parse_prefix(buf: &[u8], state: WireState) -> Result<(Self, usize), WireFormatError> {
-        if buf.len() < 5 {
+        let offset = match state {
+            WireState::Ordinary => 1,
+            WireState::BackendStartup => 0,
+        };
+        if buf.len() < offset + 4 {
             return Err(WireFormatError::UnexpectedEof);
         }
-        let type_byte = buf[0];
-        let length = u32::from_be_bytes(buf[1..5].try_into().unwrap()) as usize;
+        let type_byte = match state {
+            WireState::Ordinary => buf[0],
+            WireState::BackendStartup => NO_TYPE_BYTE,
+        };
+        let bufoff = &buf[offset..];
+        let length = u32::from_be_bytes(bufoff[..4].try_into().unwrap()) as usize;
         if length < 4 {
             return Err(WireFormatError::LengthTooShort);
         }
-        if buf.len() < length + 1 {
+        if bufoff.len() < length {
             return Err(WireFormatError::UnexpectedEof);
         }
-        let body = &buf[5..length + 1];
-        let msg = Self::parse_body(type_byte, body)?;
-        Ok((msg, length + 1))
+        let body = &bufoff[4..length];
+        let msg = Self::parse_body(type_byte, body, state)?;
+        Ok((msg, offset + length))
     }
 
-    fn parse_body(type_byte: u8, body: &[u8]) -> Result<Self, WireFormatError> {
+    fn parse_body(type_byte: u8, body: &[u8], state: WireState) -> Result<Self, WireFormatError> {
         let mut scanner = Scanner::new(body);
         let msg = match type_byte {
+            NO_TYPE_BYTE if state == WireState::BackendStartup => {
+                let version = scanner.read_version()?;
+                match version {
+                    VERSION_SSL_REQUEST => WireMessage::SSLRequest,
+                    VERSION_GSSENC_REQUEST => WireMessage::GSSENCRequest,
+                    VERSION_CANCEL_REQUEST => {
+                        let process_id = scanner.read_u32()? as i32;
+                        let secret_key = scanner.read_remaining_bytes().to_owned();
+                        WireMessage::CancelRequest {
+                            process_id,
+                            secret_key,
+                        }
+                    }
+                    (major, minor) => {
+                        let mut parameters = Vec::new();
+                        loop {
+                            let name = scanner.read_cstring()?;
+                            if name.is_empty() {
+                                break;
+                            }
+                            let value = scanner.read_cstring()?;
+                            parameters.push(StartupParameter { name, value });
+                        }
+                        WireMessage::StartupMessage {
+                            major,
+                            minor,
+                            parameters,
+                        }
+                    }
+                }
+            }
             TYPE_BYTE_AUTHENTICATION => {
                 let auth_type = scanner.read_u32()?;
                 match auth_type {
@@ -538,6 +621,130 @@ mod tests {
 
     fn parse_msg(buf: &[u8], state: WireState) -> WireMessage {
         WireMessage::parse(buf, state).unwrap()
+    }
+
+    #[test]
+    fn test_write_startup_message_simple() {
+        assert_eq!(
+            write_msg(&WireMessage::StartupMessage {
+                major: 3,
+                minor: 2,
+                parameters: vec![
+                    StartupParameter {
+                        name: "user".to_string(),
+                        value: "testuser".to_string(),
+                    },
+                    StartupParameter {
+                        name: "database".to_string(),
+                        value: "testdb".to_string(),
+                    },
+                ],
+            }),
+            b"\x00\x00\x00\x27\x00\x03\x00\x02user\x00testuser\x00database\x00testdb\x00\x00"
+        );
+    }
+
+    #[test]
+    fn test_parse_startup_message_simple() {
+        assert_eq!(
+            parse_msg(
+                b"\x00\x00\x00\x27\x00\x03\x00\x02user\x00testuser\x00database\x00testdb\x00\x00",
+                WireState::BackendStartup
+            ),
+            WireMessage::StartupMessage {
+                major: 3,
+                minor: 2,
+                parameters: vec![
+                    StartupParameter {
+                        name: "user".to_string(),
+                        value: "testuser".to_string(),
+                    },
+                    StartupParameter {
+                        name: "database".to_string(),
+                        value: "testdb".to_string(),
+                    },
+                ],
+            }
+        );
+    }
+
+    #[test]
+    fn test_write_ssl_request() {
+        assert_eq!(
+            write_msg(&WireMessage::SSLRequest),
+            b"\x00\x00\x00\x08\x04\xd2\x16\x2f"
+        );
+    }
+
+    #[test]
+    fn test_parse_ssl_request() {
+        assert_eq!(
+            parse_msg(
+                b"\x00\x00\x00\x08\x04\xd2\x16\x2f",
+                WireState::BackendStartup
+            ),
+            WireMessage::SSLRequest
+        );
+    }
+
+    #[test]
+    fn test_write_gssenc_request() {
+        assert_eq!(
+            write_msg(&WireMessage::GSSENCRequest),
+            b"\x00\x00\x00\x08\x04\xd2\x16\x30"
+        );
+    }
+
+    #[test]
+    fn test_parse_gssenc_request() {
+        assert_eq!(
+            parse_msg(
+                b"\x00\x00\x00\x08\x04\xd2\x16\x30",
+                WireState::BackendStartup
+            ),
+            WireMessage::GSSENCRequest
+        );
+    }
+
+    #[test]
+    fn test_write_cancel_request() {
+        assert_eq!(
+            write_msg(&WireMessage::CancelRequest {
+                process_id: 12345,
+                secret_key: vec![
+                    0x7F, 0xCF, 0xA8, 0x12, 0x98, 0x69, 0x4A, 0x34, 0x19, 0x18, 0x64, 0x4D, 0x05,
+                    0x37, 0x1A, 0xC7, 0xCB, 0x71, 0x5D, 0x2A, 0x12, 0xA6, 0xEF, 0x55, 0x04, 0x43,
+                    0x07, 0xDE, 0xBC, 0x4E, 0xEB, 0x2E
+                ],
+            }),
+            b"\x00\x00\x00\x2C\x04\xD2\x16\x2E\x00\x00\x30\x39\
+              \x7F\xCF\xA8\x12\x98\x69\x4A\x34\
+              \x19\x18\x64\x4D\x05\x37\x1A\xC7\
+              \xCB\x71\x5D\x2A\x12\xA6\xEF\x55\
+              \x04\x43\x07\xDE\xBC\x4E\xEB\x2E"
+        );
+    }
+
+    #[test]
+    fn test_parse_cancel_request() {
+        assert_eq!(
+            parse_msg(
+                b"\x00\x00\x00\x2C\x04\xD2\x16\x2E\x00\x00\x30\x39\
+                  \x7F\xCF\xA8\x12\x98\x69\x4A\x34\
+                  \x19\x18\x64\x4D\x05\x37\x1A\xC7\
+                  \xCB\x71\x5D\x2A\x12\xA6\xEF\x55\
+                  \x04\x43\x07\xDE\xBC\x4E\xEB\x2E",
+                WireState::BackendStartup
+            ),
+            WireMessage::CancelRequest {
+                process_id: 12345,
+                secret_key: vec![
+                    0x7F, 0xCF, 0xA8, 0x12, 0x98, 0x69, 0x4A, 0x34, 0x19, 0x18, 0x64, 0x4D, 0x05,
+                    0x37, 0x1A, 0xC7, 0xCB, 0x71, 0x5D, 0x2A, 0x12, 0xA6, 0xEF, 0x55, 0x04, 0x43,
+                    0x07, 0xDE, 0xBC, 0x4E, 0xEB, 0x2E
+                ],
+            }
+        );
     }
 
     #[test]
