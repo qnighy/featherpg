@@ -11,6 +11,10 @@ use std::{
 /// - The buffer is contiguous in memory.
 /// - Append to the back and pop from the front only.
 /// - Automatically shrinks when a lot of data has been consumed.
+///
+/// This queue is deliberately unbounded in size to accommodate large messages.
+/// You need to implement your own backpressure mechanism at a higher level
+/// in the protocol.
 pub(in crate::wire) struct ByteQueue {
     buf: Vec<u8>,
     position: usize,

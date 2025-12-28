@@ -1,10 +1,11 @@
 // https://www.postgresql.org/docs/current/protocol.html
 // https://www.postgresql.org/docs/current/protocol-message-formats.html
 
-use std::io;
-
-use crate::wire::message_common::{
-    LengthCounter, ProtocolVersion, Scanner, WireFormatError, WriteExt,
+use crate::wire::{
+    io_util::ByteQueue,
+    message_common::{
+        ByteQueueWriteExt, LengthReservation, ProtocolVersion, Scanner, WireFormatError,
+    },
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -246,135 +247,119 @@ const AUTH_TYPE_SASL_CONTINUE: u32 = 11;
 const AUTH_TYPE_SASL_FINAL: u32 = 12;
 
 impl WireMessage {
-    fn write_to<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
-        let mut length_counter = LengthCounter::new();
-        let type_byte = self.write_body_to(&mut length_counter)?;
-        let total_length = u32::try_from(length_counter.length() + 4).unwrap();
-
-        if type_byte != NO_TYPE_BYTE {
-            writer.write_all(&[type_byte])?;
-        }
-        writer.write_all(&total_length.to_be_bytes())?;
-        self.write_body_to(writer)?;
-
-        Ok(())
-    }
-
-    fn write_body_to<W: io::Write>(&self, writer: &mut W) -> io::Result<u8> {
+    fn write_to(&self, writer: &mut ByteQueue) {
+        let mut res: LengthReservation;
         match self {
             // Startup messages
             WireMessage::StartupMessage {
                 version,
                 parameters,
             } => {
-                writer.write_version(*version)?;
+                res = writer.write_length_placeholder();
+                writer.write_version(*version);
                 for param in parameters {
-                    writer.write_cstring(&param.name)?;
-                    writer.write_cstring(&param.value)?;
+                    writer.write_cstring(&param.name);
+                    writer.write_cstring(&param.value);
                 }
-                writer.write_cstring("")?;
-                Ok(NO_TYPE_BYTE)
+                writer.write_cstring("");
             }
             WireMessage::SSLRequest => {
-                writer.write_version(VERSION_SSL_REQUEST)?;
-                Ok(NO_TYPE_BYTE)
+                res = writer.write_length_placeholder();
+                writer.write_version(VERSION_SSL_REQUEST);
             }
             WireMessage::GSSENCRequest => {
-                writer.write_version(VERSION_GSSENC_REQUEST)?;
-                Ok(NO_TYPE_BYTE)
+                res = writer.write_length_placeholder();
+                writer.write_version(VERSION_GSSENC_REQUEST);
             }
             WireMessage::CancelRequest {
                 process_id,
                 secret_key,
             } => {
-                writer.write_version(VERSION_CANCEL_REQUEST)?;
-                writer.write_u32(*process_id as u32)?;
-                writer.write_all(secret_key)?;
-                Ok(NO_TYPE_BYTE)
+                res = writer.write_length_placeholder();
+                writer.write_version(VERSION_CANCEL_REQUEST);
+                writer.write_u32(*process_id as u32);
+                writer.write_bytes(secret_key);
             }
 
             // Startup responses
             WireMessage::AuthenticationOk => {
-                let type_byte = TYPE_BYTE_AUTHENTICATION;
-                writer.write_u32(AUTH_TYPE_OK)?;
-                Ok(type_byte)
+                writer.write_u8(TYPE_BYTE_AUTHENTICATION);
+                res = writer.write_length_placeholder();
+                writer.write_u32(AUTH_TYPE_OK);
             }
             WireMessage::AuthenticationCleartextPassword => {
-                let type_byte = TYPE_BYTE_AUTHENTICATION;
-                writer.write_u32(AUTH_TYPE_CLEARTEXT_PASSWORD)?;
-                Ok(type_byte)
+                writer.write_u8(TYPE_BYTE_AUTHENTICATION);
+                res = writer.write_length_placeholder();
+                writer.write_u32(AUTH_TYPE_CLEARTEXT_PASSWORD);
             }
             WireMessage::AuthenticationMD5Password { salt } => {
-                let type_byte = TYPE_BYTE_AUTHENTICATION;
-                writer.write_u32(AUTH_TYPE_MD5_PASSWORD)?;
-                writer.write_all(salt)?;
-                Ok(type_byte)
+                writer.write_u8(TYPE_BYTE_AUTHENTICATION);
+                res = writer.write_length_placeholder();
+                writer.write_u32(AUTH_TYPE_MD5_PASSWORD);
+                writer.write_bytes(salt);
             }
             WireMessage::AuthenticationKerberosV5 => {
-                let type_byte = TYPE_BYTE_AUTHENTICATION;
-                writer.write_u32(AUTH_TYPE_KERBEROS_V5)?;
-                Ok(type_byte)
+                writer.write_u8(TYPE_BYTE_AUTHENTICATION);
+                res = writer.write_length_placeholder();
+                writer.write_u32(AUTH_TYPE_KERBEROS_V5);
             }
             WireMessage::AuthenticationGSS => {
-                let type_byte = TYPE_BYTE_AUTHENTICATION;
-                writer.write_u32(AUTH_TYPE_GSS)?;
-                Ok(type_byte)
+                writer.write_u8(TYPE_BYTE_AUTHENTICATION);
+                res = writer.write_length_placeholder();
+                writer.write_u32(AUTH_TYPE_GSS);
             }
             WireMessage::AuthenticationSSPI => {
-                let type_byte = TYPE_BYTE_AUTHENTICATION;
-                writer.write_u32(AUTH_TYPE_SSPI)?;
-                Ok(type_byte)
+                writer.write_u8(TYPE_BYTE_AUTHENTICATION);
+                res = writer.write_length_placeholder();
+                writer.write_u32(AUTH_TYPE_SSPI);
             }
             WireMessage::AuthenticationSASL { mechanisms } => {
-                let type_byte = TYPE_BYTE_AUTHENTICATION;
-                writer.write_u32(AUTH_TYPE_SASL)?;
+                writer.write_u8(TYPE_BYTE_AUTHENTICATION);
+                res = writer.write_length_placeholder();
+                writer.write_u32(AUTH_TYPE_SASL);
                 for mechanism in mechanisms {
-                    if mechanism == "" {
-                        return Err(io::Error::new(
-                            io::ErrorKind::InvalidInput,
-                            "SASL mechanism cannot be empty",
-                        ));
-                    }
-                    writer.write_cstring(mechanism)?;
+                    assert!(!mechanism.is_empty(), "SASL mechanism cannot be empty");
+                    writer.write_cstring(mechanism);
                 }
-                writer.write_cstring("")?;
-                Ok(type_byte)
+                writer.write_cstring("");
             }
             WireMessage::NegotiateProtocolVersion {
                 version,
                 unrecognized_options,
             } => {
-                let type_byte = TYPE_BYTE_NEGOTIATE_PROTOCOL_VERSION;
-                writer.write_version(*version)?;
-                writer.write_u32(u32::try_from(unrecognized_options.len()).unwrap())?;
+                writer.write_u8(TYPE_BYTE_NEGOTIATE_PROTOCOL_VERSION);
+                res = writer.write_length_placeholder();
+                writer.write_version(*version);
+                writer.write_u32(u32::try_from(unrecognized_options.len()).unwrap());
                 for option in unrecognized_options {
-                    writer.write_cstring(option)?;
+                    writer.write_cstring(option);
                 }
-                Ok(type_byte)
             }
 
             // Continuation of authentication
             WireMessage::AuthenticationGSSContinue { data } => {
-                let type_byte = TYPE_BYTE_AUTHENTICATION;
-                writer.write_u32(AUTH_TYPE_GSS_CONTINUE)?;
-                writer.write_all(data)?;
-                Ok(type_byte)
+                writer.write_u8(TYPE_BYTE_AUTHENTICATION);
+                res = writer.write_length_placeholder();
+                writer.write_u32(AUTH_TYPE_GSS_CONTINUE);
+                writer.write_bytes(data);
             }
             WireMessage::AuthenticationSASLContinue { data } => {
-                let type_byte = TYPE_BYTE_AUTHENTICATION;
-                writer.write_u32(AUTH_TYPE_SASL_CONTINUE)?;
-                writer.write_all(data)?;
-                Ok(type_byte)
+                writer.write_u8(TYPE_BYTE_AUTHENTICATION);
+                res = writer.write_length_placeholder();
+                writer.write_u32(AUTH_TYPE_SASL_CONTINUE);
+                writer.write_bytes(data);
             }
             WireMessage::AuthenticationSASLFinal { data } => {
-                let type_byte = TYPE_BYTE_AUTHENTICATION;
-                writer.write_u32(AUTH_TYPE_SASL_FINAL)?;
-                writer.write_all(data)?;
-                Ok(type_byte)
+                writer.write_u8(TYPE_BYTE_AUTHENTICATION);
+                res = writer.write_length_placeholder();
+                writer.write_u32(AUTH_TYPE_SASL_FINAL);
+                writer.write_bytes(data);
             }
 
             _ => unimplemented!("write_body_to not implemented for {:?}", self),
         }
+
+        writer.write_length_back(res);
     }
 
     fn parse(buf: &[u8], state: WireState) -> Result<Self, WireFormatError> {
@@ -610,9 +595,9 @@ mod tests {
     use super::*;
 
     fn write_msg(msg: &WireMessage) -> Vec<u8> {
-        let mut buf = Vec::new();
-        msg.write_to(&mut buf).unwrap();
-        buf
+        let mut buf = ByteQueue::new();
+        msg.write_to(&mut buf);
+        Vec::from(&*buf)
     }
 
     fn parse_msg(buf: &[u8], state: WireState) -> WireMessage {

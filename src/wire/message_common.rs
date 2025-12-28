@@ -5,6 +5,8 @@ use std::{
 
 use thiserror::Error;
 
+use crate::wire::io_util::ByteQueue;
+
 /// Represents a protocol version with major and minor numbers.
 ///
 /// PostgreSQL uses the versions 3.0 to 3.2 for the frontend/backend protocol.
@@ -20,84 +22,60 @@ impl ProtocolVersion {
     }
 }
 
-pub(super) trait WriteExt: Write {
-    fn write_cstring(&mut self, s: &str) -> io::Result<()> {
-        if s.contains('\0') {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "CString cannot contain null bytes",
-            ));
-        }
-        self.write_all(s.as_bytes())?;
-        self.write_all(&[0])?;
-        Ok(())
-    }
-
-    fn write_u32(&mut self, value: u32) -> io::Result<()> {
-        self.write_all(&value.to_be_bytes())?;
-        Ok(())
-    }
-
-    fn write_version(&mut self, version: ProtocolVersion) -> io::Result<()> {
-        self.write_all(&u16::to_be_bytes(version.major))?;
-        self.write_all(&u16::to_be_bytes(version.minor))?;
-        Ok(())
-    }
+pub(in crate::wire) struct LengthReservation {
+    position: usize,
 }
 
-impl<T: Write + ?Sized> WriteExt for T {}
+pub(in crate::wire) trait ByteQueueWriteExt {
+    fn write_bytes(&mut self, bytes: &[u8]);
+    fn write_u8(&mut self, value: u8);
+    fn write_u16(&mut self, value: u16);
+    fn write_u32(&mut self, value: u32);
+    fn write_version(&mut self, version: ProtocolVersion);
+    fn write_cstring(&mut self, s: &str);
 
-pub(super) trait WritableWireMessage {
-    fn type_byte(&self) -> u8;
-
-    fn write_body_to<W>(&self, writer: &mut W) -> io::Result<()>
-    where
-        W: io::Write;
+    fn write_length_placeholder(&mut self) -> LengthReservation;
+    fn write_length_back(&mut self, reservation: LengthReservation);
 }
 
-pub(super) trait WritableWireMessageExt: WritableWireMessage {
-    fn write_message_to<W>(&self, writer: &mut W) -> io::Result<()>
-    where
-        W: io::Write,
-    {
-        writer.write_all(&[self.type_byte()])?;
-
-        let mut length_counter = LengthCounter { length: 0 };
-        self.write_body_to(&mut length_counter)?;
-        let total_length = u32::try_from(length_counter.length + 4).unwrap();
-
-        writer.write_all(&total_length.to_be_bytes())?;
-        self.write_body_to(writer)?;
-
-        Ok(())
-    }
-}
-
-impl<T: WritableWireMessage + ?Sized> WritableWireMessageExt for T {}
-
-#[derive(Debug, Clone)]
-pub(super) struct LengthCounter {
-    length: usize,
-}
-
-impl LengthCounter {
-    pub(super) fn new() -> Self {
-        Self { length: 0 }
+impl ByteQueueWriteExt for ByteQueue {
+    fn write_bytes(&mut self, bytes: &[u8]) {
+        self.extend_from_slice(bytes);
     }
 
-    pub(super) fn length(&self) -> usize {
-        self.length
-    }
-}
-
-impl io::Write for LengthCounter {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.length += buf.len();
-        Ok(buf.len())
+    fn write_u8(&mut self, value: u8) {
+        self.extend_from_slice(&[value]);
     }
 
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
+    fn write_u16(&mut self, value: u16) {
+        self.extend_from_slice(&value.to_be_bytes());
+    }
+
+    fn write_u32(&mut self, value: u32) {
+        self.extend_from_slice(&value.to_be_bytes());
+    }
+
+    fn write_version(&mut self, version: ProtocolVersion) {
+        self.write_u16(version.major);
+        self.write_u16(version.minor);
+    }
+
+    fn write_cstring(&mut self, s: &str) {
+        assert!(!s.contains('\0'), "CString cannot contain null bytes");
+        self.extend_from_slice(s.as_bytes());
+        self.write_u8(0);
+    }
+
+    fn write_length_placeholder(&mut self) -> LengthReservation {
+        let position = self.len();
+        self.write_u32(0); // Placeholder
+        LengthReservation { position }
+    }
+
+    fn write_length_back(&mut self, reservation: LengthReservation) {
+        let LengthReservation { position } = reservation;
+        let len = u32::try_from(self.len() - position).unwrap();
+        self[position..position + 4].copy_from_slice(&len.to_be_bytes());
     }
 }
 
