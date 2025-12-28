@@ -5,6 +5,7 @@ pub use crate::server_state::{
     ServerSSLRequest, ServerSSLResponder, ServerWireRequest, UpgradeConnection, WireServer,
 };
 
+pub mod common;
 pub mod errors;
 mod io_util;
 mod message;

@@ -2,6 +2,18 @@ use std::io;
 
 use thiserror::Error;
 
+use crate::common::CarriedStream;
+
+#[derive(Debug, Error)]
+pub enum HandleConnectionError<S> {
+    #[error("Upgrade to SSL/TLS is requested")]
+    UpgradeToSSL(CarriedStream<S>),
+    #[error("Upgrade to GSSENC is requested")]
+    UpgradeToGSSENC(CarriedStream<S>),
+    #[error(transparent)]
+    Io(#[from] io::Error),
+}
+
 #[derive(Debug, Error)]
 pub enum ServerError {
     #[error("PostgreSQL error: {0}")]

@@ -1,10 +1,16 @@
 use std::io::{self, Read, Write};
 
-use crate::errors::ServerError;
+use thiserror::Error;
+
+use crate::{
+    common::CarriedStream,
+    errors::{HandleConnectionError, ServerError},
+    io_util::ByteQueue,
+};
 
 /// Defines an interface that a PostgreSQL wire protocol server must implement
 /// using the synchronous I/O model.
-pub trait Serve<S: Read + Write> {
+pub trait Serve {
     /// Handles a startup request from a client.
     ///
     /// It is always called exactly once before any commands except:
@@ -12,7 +18,7 @@ pub trait Serve<S: Read + Write> {
     /// - SSLRequest
     /// - GSSENCRequest
     /// - CancelRequest
-    fn startup(&mut self, req: StartupRequest) -> Result<(), ServerError>;
+    fn startup(&mut self, req: StartupRequest) -> Result<StartupResponse, ServerError>;
 
     /// Handles a request to upgrade the connection to use SSL.
     /// Calls to this method may only occur before the `startup` method.
@@ -50,6 +56,18 @@ pub struct StartupRequest {
     // TODO: options, replication, _pq_, etc.
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum StartupResponse {
+    /// Sucessfull authentication.
+    /// The connection goes to the normal command processing state.
+    Ok,
+    /// Require the client to send a cleartext password.
+    RequestCleartextPassword,
+    /// Require the client to send an MD5-hashed password.
+    RequestMD5Password { salt: [u8; 4] },
+    // TODO: other authentication methods.
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum SSLResponse {
     UseSSL,
@@ -66,4 +84,18 @@ pub enum GSSENCResponse {
 pub struct CancelRequest {
     pub process_id: i32,
     pub secret_key: Vec<u8>,
+}
+
+/// Runs a PostgreSQL wire protocol server on the given stream.
+pub fn handle_connection<Sv, St>(
+    server: &mut Sv,
+    stream: St,
+) -> Result<(), HandleConnectionError<St>>
+where
+    Sv: Serve + ?Sized,
+    St: Read + Write,
+{
+    let mut read_queue = ByteQueue::new();
+    let mut read_tmp = vec![0u8; 1024];
+    Ok(())
 }
