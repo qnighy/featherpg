@@ -4,7 +4,6 @@ pub use crate::parser::{
 };
 pub use crate::pos::CodeRange;
 pub use crate::symbols::Symbol;
-pub use crate::wire::WireServer;
 
 pub mod ast;
 mod diag;
@@ -13,4 +12,4 @@ mod parser;
 mod pos;
 mod symbols;
 mod token;
-mod wire;
+pub mod wire;

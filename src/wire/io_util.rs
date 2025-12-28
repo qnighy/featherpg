@@ -143,6 +143,13 @@ impl From<&[u8]> for ByteQueue {
     }
 }
 
+impl From<ByteQueue> for Vec<u8> {
+    fn from(mut queue: ByteQueue) -> Self {
+        queue.buf.drain(0..queue.position);
+        queue.buf
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -155,5 +162,14 @@ mod tests {
 
         queue.consume(4);
         assert_eq!(&*queue, &[5, 6]);
+    }
+
+    #[test]
+    fn test_convert_consume_convert() {
+        let mut queue = ByteQueue::from(b"foobar"[..].to_owned());
+        assert_eq!(&*queue, b"foobar");
+        queue.consume(3);
+        let vec: Vec<u8> = queue.into();
+        assert_eq!(&vec, b"bar");
     }
 }
