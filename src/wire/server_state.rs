@@ -8,6 +8,7 @@ use crate::wire::{
 pub struct WireServer {
     state: WireState,
     read_queue: ByteQueue,
+    write_queue: ByteQueue,
 }
 
 impl WireServer {
@@ -15,6 +16,7 @@ impl WireServer {
         Self {
             state: WireState::BackendStartup,
             read_queue: ByteQueue::new(),
+            write_queue: ByteQueue::new(),
         }
     }
 
@@ -49,5 +51,13 @@ impl WireServer {
             }
             _ => todo!(),
         }
+    }
+
+    pub fn write_buffer(&mut self) -> &[u8] {
+        &*self.write_queue
+    }
+
+    pub fn consume_write(&mut self, count: usize) {
+        self.write_queue.consume(count);
     }
 }
