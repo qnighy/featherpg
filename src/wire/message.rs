@@ -3,12 +3,30 @@
 
 use std::io;
 
-use crate::wire::message_common::{
-    ColumnFormat, LengthCounter, Scanner, WireFormatError, WriteExt,
-};
+use crate::wire::message_common::{LengthCounter, Scanner, WireFormatError, WriteExt};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 enum WireMessage {
+    // Startup messages (frontend)
+    /// Startup message (frontend) -- the initial message to initiate a connection
+    /// without encryption negotiation.
+    StartupMessage {
+        major: u16,
+        minor: u16,
+        parameters: Vec<StartupParameter>,
+    },
+    /// Startup message (frontend) -- the initial message to initiate a connection
+    /// with SSL encryption negotiation.
+    SSLRequest,
+    /// Startup message (frontend) -- the initial message to initiate a connection
+    /// with GSSAPI encryption negotiation.
+    GSSENCRequest,
+    /// Startup-like message (frontend) -- used to cancel a running query.
+    CancelRequest {
+        process_id: i32,
+        secret_key: Vec<u8>,
+    },
+
     // Startup responses (backend)
     /// Startup response (backend) -- successful authentication
     AuthenticationOk,
@@ -39,6 +57,19 @@ enum WireMessage {
     /// Authentication continuation (backend) -- part of SASL authentication.
     AuthenticationSASLFinal { data: Vec<u8> },
 
+    // Authentication continuation (frontend)
+    /// Authentication continuation (frontend) -- cleartext or MD5-hashed password
+    PasswordMessage { password: String },
+    /// Authentication continuation (frontend) -- part of GSSAPI or SSPI authentication.
+    GSSResponse { data: Vec<u8> },
+    /// Authentication continuation (frontend) -- part of SASL authentication.
+    SASLInitialResponse {
+        mechanism: String,
+        initial_response: Option<Vec<u8>>,
+    },
+    /// Authentication continuation (frontend) -- part of SASL authentication.
+    SASLResponse { data: Vec<u8> },
+
     // Backend startup (backend)
     /// Backend startup (backend) -- secret key data for canceling a running query
     BackendKeyData {
@@ -49,6 +80,16 @@ enum WireMessage {
     /// Also issued after each command.
     ReadyForQuery {
         transaction_status: TransactionStatus,
+    },
+
+    // Simple query (frontend)
+    /// Issues a simple query (frontend)
+    Query { query: String },
+    /// Issues a legacy function call (frontend)
+    FunctionCall {
+        function_oid: u32,
+        parameters: Vec<BindParameter>,
+        result_format: ColumnFormat,
     },
 
     // Query responses (backend)
@@ -84,10 +125,41 @@ enum WireMessage {
         overall_format: OverallCopyFormat,
         column_formats: Vec<ColumnFormat>,
     },
+
+    // Copy messages (frontend & backend)
     /// Copy data message (frontend & backend) -- a chunk of data being copied
     CopyData { data: Vec<u8> },
     /// Copy done message (frontend & backend) -- indicates the end of a copy operation
     CopyDone,
+    /// Copy fail message (frontend) -- indicates that a copy operation failed
+    CopyFail { message: String },
+
+    // Extended query protocol (frontend)
+    /// Prepares a statement for execution
+    Parse {
+        statement_name: String,
+        query: String,
+        parameter_types: Vec<u32>,
+    },
+    /// Binds a prepared statement to a portal for execution
+    Bind {
+        portal: String,
+        statement_name: String,
+        parameters: Vec<BindParameter>,
+    },
+    /// Executes a portal
+    Execute { portal: String, max_rows: i32 },
+    /// Describes a prepared statement or portal
+    Describe {
+        target: DescribeTarget,
+        name: String,
+    },
+    /// Indicates the end of a series of extended query messages
+    Sync,
+    /// Forces the server to send all pending results
+    Flush,
+    /// Closes a prepared statement or portal
+    Close { target: CloseTarget, name: String },
 
     // Extended query protocol support (backend)
     /// Extended query (backend) -- parse completion notification
@@ -102,6 +174,10 @@ enum WireMessage {
     NoData,
     /// Extended query (backend) -- close completion notification
     CloseComplete,
+
+    // Connection termination
+    /// Terminates the connection
+    Terminate,
 
     // Asynchronous messages and general responses (backend)
     /// Asynchronous message (backend) -- server parameter status update
@@ -355,6 +431,60 @@ impl WireMessage {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct StartupParameter {
+    name: String,
+    value: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+enum TransactionStatus {
+    Idle,
+    InTransaction,
+    InFailedTransaction,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum BindParameter {
+    Text(String),
+    Binary(Vec<u8>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+enum ColumnFormat {
+    Text,
+    Binary,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct RowDescriptionField {
+    name: String,
+    table_oid: u32,
+    column_attr_number: u16,
+    data_type_oid: u32,
+    data_type_size: i16,
+    type_modifier: i32,
+    format: ColumnFormat,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+enum OverallCopyFormat {
+    Text,
+    Binary,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+enum DescribeTarget {
+    Statement,
+    Portal,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+enum CloseTarget {
+    Statement,
+    Portal,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct DiagnosticMessage {
     severity: DiagnosticSeverity,
     localized_severity: String,
@@ -386,30 +516,6 @@ enum DiagnosticSeverity {
     Error,
     Fatal,
     Panic,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-enum TransactionStatus {
-    Idle,
-    InTransaction,
-    InFailedTransaction,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct RowDescriptionField {
-    name: String,
-    table_oid: u32,
-    column_attr_number: u16,
-    data_type_oid: u32,
-    data_type_size: i16,
-    type_modifier: i32,
-    format: ColumnFormat,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-enum OverallCopyFormat {
-    Text,
-    Binary,
 }
 
 #[cfg(test)]

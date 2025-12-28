@@ -5,12 +5,6 @@ use std::{
 
 use thiserror::Error;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(super) enum ColumnFormat {
-    Text,
-    Binary,
-}
-
 pub(super) trait WriteExt: Write {
     fn write_cstring(&mut self, s: &str) -> io::Result<()> {
         if s.contains('\0') {
