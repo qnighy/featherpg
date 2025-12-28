@@ -1,4 +1,8 @@
-use std::ops::{Deref, DerefMut};
+use std::{
+    fmt,
+    hash::Hash,
+    ops::{Deref, DerefMut},
+};
 
 /// A contiguous queue of bytes for reading and writing.
 ///
@@ -72,6 +76,46 @@ impl Deref for ByteQueue {
 impl DerefMut for ByteQueue {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.buf[self.position..]
+    }
+}
+
+impl fmt::Debug for ByteQueue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        <[u8] as fmt::Debug>::fmt(&*self, f)
+    }
+}
+
+impl Clone for ByteQueue {
+    fn clone(&self) -> Self {
+        let mut new_queue = Self::with_capacity(self.default_capacity);
+        new_queue.extend_from_slice(&*self);
+        new_queue
+    }
+}
+
+impl PartialEq for ByteQueue {
+    fn eq(&self, other: &Self) -> bool {
+        <[u8] as PartialEq>::eq(&*self, &*other)
+    }
+}
+
+impl Eq for ByteQueue {}
+
+impl PartialOrd for ByteQueue {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        <[u8] as PartialOrd>::partial_cmp(&*self, &*other)
+    }
+}
+
+impl Ord for ByteQueue {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        <[u8] as Ord>::cmp(&*self, &*other)
+    }
+}
+
+impl Hash for ByteQueue {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        <[u8] as Hash>::hash(&*self, state);
     }
 }
 
