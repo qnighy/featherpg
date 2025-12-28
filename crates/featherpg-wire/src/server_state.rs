@@ -3,7 +3,7 @@ use std::{
     sync::atomic::{self, AtomicU64},
 };
 
-use crate::wire::{
+use crate::{
     io_util::ByteQueue,
     message::{WireMessage, WireState},
     message_common::{ByteQueueWriteExt, ProtocolVersion},

@@ -5,7 +5,7 @@ use std::{
 
 use thiserror::Error;
 
-use crate::wire::io_util::ByteQueue;
+use crate::io_util::ByteQueue;
 
 /// Represents a protocol version with major and minor numbers.
 ///
@@ -22,11 +22,11 @@ impl ProtocolVersion {
     }
 }
 
-pub(in crate::wire) struct LengthReservation {
+pub(crate) struct LengthReservation {
     position: usize,
 }
 
-pub(in crate::wire) trait ByteQueueWriteExt {
+pub(crate) trait ByteQueueWriteExt {
     fn write_bytes(&mut self, bytes: &[u8]);
     fn write_u8(&mut self, value: u8);
     fn write_u16(&mut self, value: u16);

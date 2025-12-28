@@ -8,3 +8,6 @@ rust-version = "1.91.1"
 num-bigint = "0.4.6"
 phf = { version = "0.13.1", features = ["macros"] }
 thiserror = "2.0.17"
+
+[workspace]
+members = ["crates/*"]

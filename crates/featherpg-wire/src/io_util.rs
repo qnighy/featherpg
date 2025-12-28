@@ -15,7 +15,7 @@ use std::{
 /// This queue is deliberately unbounded in size to accommodate large messages.
 /// You need to implement your own backpressure mechanism at a higher level
 /// in the protocol.
-pub(in crate::wire) struct ByteQueue {
+pub(crate) struct ByteQueue {
     buf: Vec<u8>,
     position: usize,
     /// Controls auto-shrinking behavior.
@@ -23,11 +23,11 @@ pub(in crate::wire) struct ByteQueue {
 }
 
 impl ByteQueue {
-    pub(in crate::wire) fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self::with_capacity(1024)
     }
 
-    pub(in crate::wire) fn with_capacity(capacity: usize) -> Self {
+    pub(crate) fn with_capacity(capacity: usize) -> Self {
         Self {
             buf: Vec::with_capacity(capacity),
             position: 0,
@@ -36,7 +36,7 @@ impl ByteQueue {
     }
 
     /// Appends data to the back of the queue.
-    pub(in crate::wire) fn extend_from_slice(&mut self, data: &[u8]) {
+    pub(crate) fn extend_from_slice(&mut self, data: &[u8]) {
         self.buf.extend_from_slice(data);
     }
 
@@ -47,7 +47,7 @@ impl ByteQueue {
     /// ## Panics
     ///
     /// Panics if `count` is greater than the current length of the queue.
-    pub(in crate::wire) fn consume(&mut self, count: usize) {
+    pub(crate) fn consume(&mut self, count: usize) {
         assert!(count <= self.len());
 
         self.position += count;

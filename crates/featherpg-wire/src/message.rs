@@ -1,7 +1,7 @@
 // https://www.postgresql.org/docs/current/protocol.html
 // https://www.postgresql.org/docs/current/protocol-message-formats.html
 
-use crate::wire::{
+use crate::{
     io_util::ByteQueue,
     message_common::{
         ByteQueueWriteExt, LengthReservation, ProtocolVersion, Scanner, WireFormatError,
@@ -9,7 +9,7 @@ use crate::wire::{
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(in crate::wire) enum WireState {
+pub(crate) enum WireState {
     /// Ordinary message exchange state
     Ordinary,
     /// A special state when the server receives the startup message
@@ -17,7 +17,7 @@ pub(in crate::wire) enum WireState {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(in crate::wire) enum WireMessage {
+pub(crate) enum WireMessage {
     // Startup messages (frontend)
     /// Startup message (frontend) -- the initial message to initiate a connection
     /// without encryption negotiation.
@@ -247,7 +247,7 @@ const AUTH_TYPE_SASL_CONTINUE: u32 = 11;
 const AUTH_TYPE_SASL_FINAL: u32 = 12;
 
 impl WireMessage {
-    pub(in crate::wire) fn write_to(&self, writer: &mut ByteQueue) {
+    pub(crate) fn write_to(&self, writer: &mut ByteQueue) {
         let res: LengthReservation;
         match self {
             // Startup messages
@@ -375,7 +375,7 @@ impl WireMessage {
 
     /// Parses a server wire message at the start of `buf`.
     /// Returns None if there is not enough data to parse a complete message.
-    pub(in crate::wire) fn read_from(
+    pub(crate) fn read_from(
         buf: &mut ByteQueue,
         state: WireState,
     ) -> Result<Option<Self>, WireFormatError> {
@@ -497,61 +497,61 @@ impl WireMessage {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(in crate::wire) struct StartupParameter {
-    pub(in crate::wire) name: String,
-    pub(in crate::wire) value: String,
+pub(crate) struct StartupParameter {
+    pub(crate) name: String,
+    pub(crate) value: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(in crate::wire) enum TransactionStatus {
+pub(crate) enum TransactionStatus {
     Idle,
     InTransaction,
     InFailedTransaction,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(in crate::wire) enum BindParameter {
+pub(crate) enum BindParameter {
     Text(String),
     Binary(Vec<u8>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(in crate::wire) enum ColumnFormat {
+pub(crate) enum ColumnFormat {
     Text,
     Binary,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(in crate::wire) struct RowDescriptionField {
-    pub(in crate::wire) name: String,
-    pub(in crate::wire) table_oid: u32,
-    pub(in crate::wire) column_attr_number: u16,
-    pub(in crate::wire) data_type_oid: u32,
-    pub(in crate::wire) data_type_size: i16,
-    pub(in crate::wire) type_modifier: i32,
-    pub(in crate::wire) format: ColumnFormat,
+pub(crate) struct RowDescriptionField {
+    pub(crate) name: String,
+    pub(crate) table_oid: u32,
+    pub(crate) column_attr_number: u16,
+    pub(crate) data_type_oid: u32,
+    pub(crate) data_type_size: i16,
+    pub(crate) type_modifier: i32,
+    pub(crate) format: ColumnFormat,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(in crate::wire) enum OverallCopyFormat {
+pub(crate) enum OverallCopyFormat {
     Text,
     Binary,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(in crate::wire) enum DescribeTarget {
+pub(crate) enum DescribeTarget {
     Statement,
     Portal,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(in crate::wire) enum CloseTarget {
+pub(crate) enum CloseTarget {
     Statement,
     Portal,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(in crate::wire) struct DiagnosticMessage {
+pub(crate) struct DiagnosticMessage {
     severity: DiagnosticSeverity,
     localized_severity: String,
     code: String,
@@ -573,7 +573,7 @@ pub(in crate::wire) struct DiagnosticMessage {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(in crate::wire) enum DiagnosticSeverity {
+pub(crate) enum DiagnosticSeverity {
     Debug,
     Log,
     Info,

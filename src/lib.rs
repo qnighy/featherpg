@@ -12,4 +12,3 @@ mod parser;
 mod pos;
 mod symbols;
 mod token;
-pub mod wire;
