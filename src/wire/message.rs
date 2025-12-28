@@ -9,21 +9,21 @@ use crate::wire::message_common::{
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 enum WireMessage {
-    // Startup responses
-    /// Startup response -- successful authentication
+    // Startup responses (backend)
+    /// Startup response (backend) -- successful authentication
     AuthenticationOk,
-    /// Startup response -- request for cleartext password
+    /// Startup response (backend) -- request for cleartext password
     AuthenticationCleartextPassword,
-    /// Startup response -- request for MD5-hashed password
+    /// Startup response (backend) -- request for MD5-hashed password
     AuthenticationMD5Password { salt: [u8; 4] },
-    /// Startup response -- part of Kerberos V5 authentication.
+    /// Startup response (backend) -- part of Kerberos V5 authentication.
     /// No longer supported by the current version of PostgreSQL.
     AuthenticationKerberosV5,
-    /// Startup response -- part of GSSAPI authentication.
+    /// Startup response (backend) -- part of GSSAPI authentication.
     AuthenticationGSS,
-    /// Startup response -- part of SSPI authentication.
+    /// Startup response (backend) -- part of SSPI authentication.
     AuthenticationSSPI,
-    /// Startup response -- request for SASL authentication
+    /// Startup response (backend) -- request for SASL authentication
     AuthenticationSASL { mechanisms: Vec<String> },
     NegotiateProtocolVersion {
         major: u16,
@@ -31,86 +31,86 @@ enum WireMessage {
         unrecognized_options: Vec<String>,
     },
 
-    // Continuation of authentication
-    /// Authentication continuation -- part of GSSAPI authentication.
+    // Continuation of authentication (backend)
+    /// Authentication continuation (backend) -- part of GSSAPI authentication.
     AuthenticationGSSContinue { data: Vec<u8> },
-    /// Authentication continuation -- part of SSPI authentication.
+    /// Authentication continuation (backend) -- part of SSPI authentication.
     AuthenticationSASLContinue { data: Vec<u8> },
-    /// Authentication continuation -- part of SASL authentication.
+    /// Authentication continuation (backend) -- part of SASL authentication.
     AuthenticationSASLFinal { data: Vec<u8> },
 
-    // Backend startup
-    /// Backend startup -- secret key data for canceling a running query
+    // Backend startup (backend)
+    /// Backend startup (backend) -- secret key data for canceling a running query
     BackendKeyData {
         process_id: i32,
         secret_key: Vec<u8>,
     },
-    /// Backend startup -- indicates that the backend is ready for queries.
+    /// Backend startup (backend) -- indicates that the backend is ready for queries.
     /// Also issued after each command.
     ReadyForQuery {
         transaction_status: TransactionStatus,
     },
 
-    // Query responses
-    /// Query response -- description of the rows returned by a query.
+    // Query responses (backend)
+    /// Query response (backend) -- description of the rows returned by a query.
     /// Also issued after Describe messages.
     RowDescription { fields: Vec<RowDescriptionField> },
-    /// Query response -- a single row of data returned by a query.
+    /// Query response (backend) -- a single row of data returned by a query.
     DataRow { columns: Vec<Option<Vec<u8>>> },
-    /// Query response -- command completion notification
+    /// Query response (backend) -- command completion notification
     CommandComplete { command: String, rows: Option<i64> },
-    /// Query response -- indicates that the query is empty.
+    /// Query response (backend) -- indicates that the query is empty.
     EmptyQueryResponse,
-    /// Kind of query response -- result of a legacy function call
+    /// Kind of query response (backend) -- result of a legacy function call
     /// request.
     FunctionCallResponse { result: Option<Vec<u8>> },
 
-    // Copy responses
-    /// Query response -- indicates that the query will copy data
+    // Copy responses (backend)
+    /// Query response (backend) -- indicates that the query will copy data
     /// to the server.
     CopyInResponse {
         overall_format: OverallCopyFormat,
         column_formats: Vec<ColumnFormat>,
     },
-    /// Query response -- indicates that the query will copy data
+    /// Query response (backend) -- indicates that the query will copy data
     /// from the server.
     CopyOutResponse {
         overall_format: OverallCopyFormat,
         column_formats: Vec<ColumnFormat>,
     },
-    /// Query response -- indicates that the query will copy data
+    /// Query response (backend) -- indicates that the query will copy data
     /// in both directions.
     CopyBothResponse {
         overall_format: OverallCopyFormat,
         column_formats: Vec<ColumnFormat>,
     },
-    /// Copy data message -- a chunk of data being copied
+    /// Copy data message (frontend & backend) -- a chunk of data being copied
     CopyData { data: Vec<u8> },
-    /// Copy done message -- indicates the end of a copy operation
+    /// Copy done message (frontend & backend) -- indicates the end of a copy operation
     CopyDone,
 
-    // Extended query protocol support
-    /// Extended query -- parse completion notification
+    // Extended query protocol support (backend)
+    /// Extended query (backend) -- parse completion notification
     ParseComplete,
-    /// Extended query -- bind completion notification
+    /// Extended query (backend) -- bind completion notification
     BindComplete,
-    /// Extended query -- portal suspended notification
+    /// Extended query (backend) -- portal suspended notification
     PortalSuspended,
-    /// Extended query -- description of a prepared statement
+    /// Extended query (backend) -- description of a prepared statement
     ParameterDescription { parameter_types: Vec<u32> },
-    /// Extended query -- description of a prepared statement
+    /// Extended query (backend) -- description of a prepared statement
     NoData,
-    /// Extended query -- close completion notification
+    /// Extended query (backend) -- close completion notification
     CloseComplete,
 
-    // Asynchronous messages and general responses
-    /// Asynchronous message -- server parameter status update
+    // Asynchronous messages and general responses (backend)
+    /// Asynchronous message (backend) -- server parameter status update
     ParameterStatus { parameter: String, value: String },
-    /// General error response.
+    /// General error response (backend).
     ErrorResponse { error: DiagnosticMessage },
-    /// Asynchronous message -- non-error notice from the server
+    /// Asynchronous message (backend) -- non-error notice from the server
     NoticeResponse { notice: DiagnosticMessage },
-    /// Asynchronous message -- notification of an event
+    /// Asynchronous message (backend) -- notification of an event
     /// that the client has LISTENed for by another session
     /// issueing a NOTIFY command.
     NotificationResponse {
