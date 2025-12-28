@@ -218,6 +218,30 @@ impl ServerStartupResponder {
 
         server.write_message(WireMessage::AuthenticationOk);
     }
+
+    pub fn respond_cleartext_password(self, server: &mut WireServer) {
+        server.consume_responder(self.0);
+
+        server.write_message(WireMessage::AuthenticationCleartextPassword);
+    }
+
+    pub fn respond_md5_password(self, salt: [u8; 4], server: &mut WireServer) {
+        server.consume_responder(self.0);
+
+        server.write_message(WireMessage::AuthenticationMD5Password { salt });
+    }
+
+    // pub fn respond_kerberos_v5(self, server: &mut WireServer) {
+    //     server.consume_responder(self.0);
+
+    //     server.write_message(WireMessage::AuthenticationKerberosV5);
+    // }
+
+    pub fn respond_gss(self, server: &mut WireServer) {
+        server.consume_responder(self.0);
+
+        server.write_message(WireMessage::AuthenticationGSS);
+    }
 }
 
 #[derive(Debug, Clone)]
