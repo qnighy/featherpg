@@ -5,6 +5,21 @@ use std::{
 
 use thiserror::Error;
 
+/// Represents a protocol version with major and minor numbers.
+///
+/// PostgreSQL uses the versions 3.0 to 3.2 for the frontend/backend protocol.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub(super) struct ProtocolVersion {
+    pub(super) major: u16,
+    pub(super) minor: u16,
+}
+
+impl ProtocolVersion {
+    pub(super) const fn new(major: u16, minor: u16) -> Self {
+        Self { major, minor }
+    }
+}
+
 pub(super) trait WriteExt: Write {
     fn write_cstring(&mut self, s: &str) -> io::Result<()> {
         if s.contains('\0') {
@@ -23,9 +38,9 @@ pub(super) trait WriteExt: Write {
         Ok(())
     }
 
-    fn write_version(&mut self, major: u16, minor: u16) -> io::Result<()> {
-        self.write_all(&major.to_be_bytes())?;
-        self.write_all(&minor.to_be_bytes())?;
+    fn write_version(&mut self, version: ProtocolVersion) -> io::Result<()> {
+        self.write_all(&u16::to_be_bytes(version.major))?;
+        self.write_all(&u16::to_be_bytes(version.minor))?;
         Ok(())
     }
 }
@@ -135,14 +150,14 @@ impl<'a> Scanner<'a> {
         Ok(value)
     }
 
-    pub(super) fn read_version(&mut self) -> Result<(u16, u16), WireFormatError> {
+    pub(super) fn read_version(&mut self) -> Result<ProtocolVersion, WireFormatError> {
         let major_bytes = self.read_bytes(2)?;
         let minor_bytes = self.read_bytes(2)?;
 
         let major = u16::from_be_bytes(major_bytes.try_into().unwrap());
         let minor = u16::from_be_bytes(minor_bytes.try_into().unwrap());
 
-        Ok((major, minor))
+        Ok(ProtocolVersion { major, minor })
     }
 
     pub(super) fn read_eof(&self) -> Result<(), WireFormatError> {

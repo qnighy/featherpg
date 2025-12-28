@@ -3,7 +3,9 @@
 
 use std::io;
 
-use crate::wire::message_common::{LengthCounter, Scanner, WireFormatError, WriteExt};
+use crate::wire::message_common::{
+    LengthCounter, ProtocolVersion, Scanner, WireFormatError, WriteExt,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 enum WireState {
@@ -19,8 +21,7 @@ enum WireMessage {
     /// Startup message (frontend) -- the initial message to initiate a connection
     /// without encryption negotiation.
     StartupMessage {
-        major: u16,
-        minor: u16,
+        version: ProtocolVersion,
         parameters: Vec<StartupParameter>,
     },
     /// Startup message (frontend) -- the initial message to initiate a connection
@@ -52,8 +53,7 @@ enum WireMessage {
     /// Startup response (backend) -- request for SASL authentication
     AuthenticationSASL { mechanisms: Vec<String> },
     NegotiateProtocolVersion {
-        major: u16,
-        minor: u16,
+        version: ProtocolVersion,
         unrecognized_options: Vec<String>,
     },
 
@@ -230,9 +230,9 @@ const TYPE_BYTE_ERROR_RESPONSE: u8 = b'E';
 const TYPE_BYTE_NOTICE_RESPONSE: u8 = b'N';
 const TYPE_BYTE_NOTIFICATION_RESPONSE: u8 = b'A';
 
-const VERSION_SSL_REQUEST: (u16, u16) = (1234, 5679);
-const VERSION_GSSENC_REQUEST: (u16, u16) = (1234, 5680);
-const VERSION_CANCEL_REQUEST: (u16, u16) = (1234, 5678);
+const VERSION_SSL_REQUEST: ProtocolVersion = ProtocolVersion::new(1234, 5679);
+const VERSION_GSSENC_REQUEST: ProtocolVersion = ProtocolVersion::new(1234, 5680);
+const VERSION_CANCEL_REQUEST: ProtocolVersion = ProtocolVersion::new(1234, 5678);
 
 const AUTH_TYPE_OK: u32 = 0;
 const AUTH_TYPE_CLEARTEXT_PASSWORD: u32 = 3;
@@ -264,11 +264,10 @@ impl WireMessage {
         match self {
             // Startup messages
             WireMessage::StartupMessage {
-                major,
-                minor,
+                version,
                 parameters,
             } => {
-                writer.write_version(*major, *minor)?;
+                writer.write_version(*version)?;
                 for param in parameters {
                     writer.write_cstring(&param.name)?;
                     writer.write_cstring(&param.value)?;
@@ -277,18 +276,18 @@ impl WireMessage {
                 Ok(NO_TYPE_BYTE)
             }
             WireMessage::SSLRequest => {
-                writer.write_version(VERSION_SSL_REQUEST.0, VERSION_SSL_REQUEST.1)?;
+                writer.write_version(VERSION_SSL_REQUEST)?;
                 Ok(NO_TYPE_BYTE)
             }
             WireMessage::GSSENCRequest => {
-                writer.write_version(VERSION_GSSENC_REQUEST.0, VERSION_GSSENC_REQUEST.1)?;
+                writer.write_version(VERSION_GSSENC_REQUEST)?;
                 Ok(NO_TYPE_BYTE)
             }
             WireMessage::CancelRequest {
                 process_id,
                 secret_key,
             } => {
-                writer.write_version(VERSION_CANCEL_REQUEST.0, VERSION_CANCEL_REQUEST.1)?;
+                writer.write_version(VERSION_CANCEL_REQUEST)?;
                 writer.write_u32(*process_id as u32)?;
                 writer.write_all(secret_key)?;
                 Ok(NO_TYPE_BYTE)
@@ -342,12 +341,11 @@ impl WireMessage {
                 Ok(type_byte)
             }
             WireMessage::NegotiateProtocolVersion {
-                major,
-                minor,
+                version,
                 unrecognized_options,
             } => {
                 let type_byte = TYPE_BYTE_NEGOTIATE_PROTOCOL_VERSION;
-                writer.write_version(*major, *minor)?;
+                writer.write_version(*version)?;
                 writer.write_u32(u32::try_from(unrecognized_options.len()).unwrap())?;
                 for option in unrecognized_options {
                     writer.write_cstring(option)?;
@@ -443,7 +441,7 @@ impl WireMessage {
                             secret_key,
                         }
                     }
-                    (major, minor) => {
+                    _ => {
                         let mut parameters = Vec::new();
                         loop {
                             let name = scanner.read_cstring()?;
@@ -454,8 +452,7 @@ impl WireMessage {
                             parameters.push(StartupParameter { name, value });
                         }
                         WireMessage::StartupMessage {
-                            major,
-                            minor,
+                            version,
                             parameters,
                         }
                     }
@@ -501,7 +498,7 @@ impl WireMessage {
                 }
             }
             TYPE_BYTE_NEGOTIATE_PROTOCOL_VERSION => {
-                let (major, minor) = scanner.read_version()?;
+                let version = scanner.read_version()?;
                 let option_count = scanner.read_u32()?;
                 let mut unrecognized_options = Vec::with_capacity(option_count as usize);
                 for _ in 0..option_count {
@@ -509,8 +506,7 @@ impl WireMessage {
                     unrecognized_options.push(option);
                 }
                 WireMessage::NegotiateProtocolVersion {
-                    major,
-                    minor,
+                    version,
                     unrecognized_options,
                 }
             }
@@ -627,8 +623,7 @@ mod tests {
     fn test_write_startup_message_simple() {
         assert_eq!(
             write_msg(&WireMessage::StartupMessage {
-                major: 3,
-                minor: 2,
+                version: ProtocolVersion::new(3, 2),
                 parameters: vec![
                     StartupParameter {
                         name: "user".to_string(),
@@ -652,8 +647,7 @@ mod tests {
                 WireState::BackendStartup
             ),
             WireMessage::StartupMessage {
-                major: 3,
-                minor: 2,
+                version: ProtocolVersion::new(3, 2),
                 parameters: vec![
                     StartupParameter {
                         name: "user".to_string(),
