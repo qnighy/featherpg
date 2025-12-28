@@ -123,6 +123,26 @@ impl Hash for ByteQueue {
     }
 }
 
+impl From<Vec<u8>> for ByteQueue {
+    fn from(vec: Vec<u8>) -> Self {
+        ByteQueue {
+            buf: vec,
+            position: 0,
+            default_capacity: 1024,
+        }
+    }
+}
+
+impl From<&[u8]> for ByteQueue {
+    fn from(slice: &[u8]) -> Self {
+        ByteQueue {
+            buf: slice.to_owned(),
+            position: 0,
+            default_capacity: 1024,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

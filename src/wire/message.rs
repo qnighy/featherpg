@@ -248,7 +248,7 @@ const AUTH_TYPE_SASL_FINAL: u32 = 12;
 
 impl WireMessage {
     pub(in crate::wire) fn write_to(&self, writer: &mut ByteQueue) {
-        let mut res: LengthReservation;
+        let res: LengthReservation;
         match self {
             // Startup messages
             WireMessage::StartupMessage {
@@ -363,38 +363,28 @@ impl WireMessage {
     }
 
     fn parse(buf: &[u8], state: WireState) -> Result<Self, WireFormatError> {
-        let (msg, consumed) = Self::parse_prefix(buf, state)?;
-        if consumed < buf.len() {
+        let mut queue = ByteQueue::from(buf);
+        let Some(msg) = Self::read_from(&mut queue, state)? else {
+            return Err(WireFormatError::UnexpectedEof);
+        };
+        if queue.len() > 0 {
             return Err(WireFormatError::ExtraBytes);
         }
         Ok(msg)
     }
 
-    pub(in crate::wire) fn bytes_required(buf: &[u8], state: WireState) -> usize {
-        let offset = match state {
-            WireState::Ordinary => 1,
-            WireState::BackendStartup => 0,
-        };
-        if buf.len() < offset + 4 {
-            return offset + 4;
-        }
-        let bufoff = &buf[offset..];
-        let len = u32::from_be_bytes(bufoff[..4].try_into().unwrap()) as usize;
-        offset + len.max(4)
-    }
-
     /// Parses a server wire message at the start of `buf`.
-    /// Expects that `buf.len() >= bytes_required(buf)`.
-    pub(in crate::wire) fn parse_prefix(
-        buf: &[u8],
+    /// Returns None if there is not enough data to parse a complete message.
+    pub(in crate::wire) fn read_from(
+        buf: &mut ByteQueue,
         state: WireState,
-    ) -> Result<(Self, usize), WireFormatError> {
+    ) -> Result<Option<Self>, WireFormatError> {
         let offset = match state {
             WireState::Ordinary => 1,
             WireState::BackendStartup => 0,
         };
         if buf.len() < offset + 4 {
-            return Err(WireFormatError::UnexpectedEof);
+            return Ok(None);
         }
         let type_byte = match state {
             WireState::Ordinary => buf[0],
@@ -406,11 +396,12 @@ impl WireMessage {
             return Err(WireFormatError::LengthTooShort);
         }
         if bufoff.len() < length {
-            return Err(WireFormatError::UnexpectedEof);
+            return Ok(None);
         }
         let body = &bufoff[4..length];
         let msg = Self::parse_body(type_byte, body, state)?;
-        Ok((msg, offset + length))
+        buf.consume(offset + length);
+        Ok(Some(msg))
     }
 
     fn parse_body(type_byte: u8, body: &[u8], state: WireState) -> Result<Self, WireFormatError> {

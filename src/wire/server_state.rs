@@ -28,16 +28,11 @@ impl WireServer {
 
     fn process_incoming_messages(&mut self) {
         loop {
-            let len = WireMessage::bytes_required(&mut *self.read_queue, self.state);
-            if self.read_queue.len() < len {
-                break;
-            }
-
             // TODO: handle parse error
-            let (msg, consumed) =
-                WireMessage::parse_prefix(&mut *self.read_queue, self.state).unwrap();
-
-            self.read_queue.consume(consumed);
+            let Some(msg) = WireMessage::read_from(&mut self.read_queue, self.state).unwrap()
+            else {
+                break;
+            };
 
             self.process_message(msg);
         }
