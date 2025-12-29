@@ -1,8 +1,183 @@
 use std::{
     fmt,
     hash::Hash,
+    io::{Read, Result as IoResult, Write},
     ops::{Deref, DerefMut},
 };
+
+/// A buffer for reading, such as BufReader, but which can grow as needed.
+#[derive(Debug)]
+pub(crate) struct GrowableBuffer {
+    buf: Vec<u8>,
+    pos: usize,
+    unit_size: usize,
+}
+
+impl GrowableBuffer {
+    pub(crate) fn new() -> Self {
+        Self::with_unit_size(8192)
+    }
+
+    /// Creates a new GrowableBuffer with the specified unit size.
+    ///
+    /// The unit size controls how much data is read at a time
+    /// from the underlying reader.
+    pub(crate) fn with_unit_size(unit_size: usize) -> Self {
+        Self {
+            buf: Vec::with_capacity(unit_size * 2),
+            pos: 0,
+            unit_size,
+        }
+    }
+
+    pub(crate) fn fill_buf<R>(&mut self, reader: &mut R) -> IoResult<&[u8]>
+    where
+        R: Read + ?Sized,
+    {
+        if self.pos > 0 {
+            self.buf.drain(0..self.pos);
+            self.pos = 0;
+
+            if self.buf.capacity() > self.unit_size * 4 {
+                self.buf.shrink_to(self.unit_size * 2);
+            }
+        }
+
+        // Grow, read, and then truncate.
+        let old_len = self.buf.len();
+        self.buf.resize(self.buf.len() + self.unit_size, 0);
+        let num_read = reader.read(&mut self.buf[old_len..])?;
+        self.buf.truncate(old_len + num_read);
+
+        Ok(self.buffer())
+    }
+
+    /// Consumes `count` bytes from the front of the buffer.
+    pub(crate) fn consume(&mut self, count: usize) {
+        assert!(self.pos + count <= self.buf.len());
+        self.pos += count;
+    }
+
+    /// Returns the contents of the buffer that have not yet been consumed.
+    pub(crate) fn buffer(&self) -> &[u8] {
+        &self.buf[self.pos..]
+    }
+
+    /// Returns the contents of the buffer, reusing the internal buffer.
+    pub(crate) fn into_buffer(self) -> Vec<u8> {
+        let mut buf = self.buf;
+        buf.drain(0..self.pos);
+        buf
+    }
+}
+
+impl From<Vec<u8>> for GrowableBuffer {
+    fn from(vec: Vec<u8>) -> Self {
+        GrowableBuffer {
+            buf: vec,
+            pos: 0,
+            unit_size: 8192,
+        }
+    }
+}
+
+impl From<GrowableBuffer> for Vec<u8> {
+    fn from(buffer: GrowableBuffer) -> Self {
+        buffer.into_buffer()
+    }
+}
+
+/// A buffer for writing, such as BufWriter, but can be managed independently
+/// of an underlying writer.
+#[derive(Debug)]
+pub(crate) struct WriteBuffer {
+    buf: Vec<u8>,
+}
+
+impl WriteBuffer {
+    pub(crate) fn new() -> Self {
+        Self::with_capacity(8192)
+    }
+
+    pub(crate) fn with_capacity(capacity: usize) -> Self {
+        Self {
+            buf: Vec::with_capacity(capacity),
+        }
+    }
+
+    pub(crate) fn write<W>(&mut self, writer: &mut W, data: &[u8]) -> IoResult<usize>
+    where
+        W: Write + ?Sized,
+    {
+        if data.len() < self.spare_capacity() {
+            self.buf.extend_from_slice(data);
+            Ok(data.len())
+        } else {
+            self.write_cold(writer, data)
+        }
+    }
+
+    #[inline(never)]
+    fn write_cold<W>(&mut self, writer: &mut W, data: &[u8]) -> IoResult<usize>
+    where
+        W: Write + ?Sized,
+    {
+        if data.len() > self.spare_capacity() {
+            self.flush_buf(writer)?;
+        }
+
+        if data.len() >= self.buf.capacity() {
+            // Write directly to the underlying writer.
+            writer.write(data)
+        } else {
+            self.buf.extend_from_slice(data);
+            Ok(data.len())
+        }
+    }
+
+    pub(crate) fn write_all<W>(&mut self, writer: &mut W, data: &[u8]) -> IoResult<()>
+    where
+        W: Write + ?Sized,
+    {
+        if data.len() < self.spare_capacity() {
+            self.buf.extend_from_slice(data);
+            Ok(())
+        } else {
+            self.write_all_cold(writer, data)
+        }
+    }
+
+    #[inline(never)]
+    fn write_all_cold<W>(&mut self, writer: &mut W, data: &[u8]) -> IoResult<()>
+    where
+        W: Write + ?Sized,
+    {
+        if data.len() > self.spare_capacity() {
+            self.flush_buf(writer)?;
+        }
+
+        if data.len() >= self.buf.capacity() {
+            // Write directly to the underlying writer.
+            writer.write_all(data)
+        } else {
+            self.buf.extend_from_slice(data);
+            Ok(())
+        }
+    }
+
+    fn spare_capacity(&self) -> usize {
+        self.buf.capacity() - self.buf.len()
+    }
+
+    fn flush_buf<W>(&mut self, writer: &mut W) -> IoResult<()>
+    where
+        W: Write + ?Sized,
+    {
+        writer.write_all(&self.buf)?;
+        self.buf.clear();
+        Ok(())
+    }
+}
 
 /// A contiguous queue of bytes for reading and writing.
 ///
