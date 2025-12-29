@@ -1,6 +1,6 @@
 // Public API for both server and client -- async tokio version
 
-use std::io::{self, IoSlice};
+use std::io::{IoSlice, Result as IoResult};
 use std::{
     pin::Pin,
     task::{Context, Poll},
@@ -15,7 +15,7 @@ impl<S: AsyncRead> AsyncRead for CarriedStream<S> {
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         buf: &mut tokio::io::ReadBuf<'_>,
-    ) -> Poll<io::Result<()>> {
+    ) -> Poll<IoResult<()>> {
         let mut this = self.as_mut().project();
         if !this.carried.is_empty() {
             let filled = read_from_vec(&mut this.carried, buf.initialize_unfilled());
@@ -27,7 +27,7 @@ impl<S: AsyncRead> AsyncRead for CarriedStream<S> {
 }
 
 impl<S: AsyncBufRead> AsyncBufRead for CarriedStream<S> {
-    fn poll_fill_buf(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<&[u8]>> {
+    fn poll_fill_buf(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<IoResult<&[u8]>> {
         let this = self.project();
         if !this.carried.is_empty() {
             return Poll::Ready(Ok(this.carried));
@@ -51,19 +51,15 @@ impl<S: AsyncBufRead> AsyncBufRead for CarriedStream<S> {
 }
 
 impl<S: AsyncWrite> AsyncWrite for CarriedStream<S> {
-    fn poll_write(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &[u8],
-    ) -> Poll<Result<usize, io::Error>> {
+    fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<IoResult<usize>> {
         self.project().stream.poll_write(cx, buf)
     }
 
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<IoResult<()>> {
         self.project().stream.poll_flush(cx)
     }
 
-    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), io::Error>> {
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<IoResult<()>> {
         self.project().stream.poll_shutdown(cx)
     }
 
@@ -71,7 +67,7 @@ impl<S: AsyncWrite> AsyncWrite for CarriedStream<S> {
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         bufs: &[IoSlice<'_>],
-    ) -> Poll<Result<usize, io::Error>> {
+    ) -> Poll<IoResult<usize>> {
         let buf = bufs
             .iter()
             .find(|b| !b.is_empty())

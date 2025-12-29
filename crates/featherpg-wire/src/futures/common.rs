@@ -1,6 +1,6 @@
 // Public API for both server and client -- async futures version
 
-use std::io::{self, IoSlice, IoSliceMut};
+use std::io::{IoSlice, IoSliceMut, Result as IoResult};
 use std::{
     pin::Pin,
     task::{Context, Poll},
@@ -15,7 +15,7 @@ impl<S: AsyncRead> AsyncRead for CarriedStream<S> {
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         buf: &mut [u8],
-    ) -> Poll<io::Result<usize>> {
+    ) -> Poll<IoResult<usize>> {
         let mut this = self.as_mut().project();
         if !this.carried.is_empty() {
             let result = read_from_vec(&mut this.carried, buf);
@@ -28,7 +28,7 @@ impl<S: AsyncRead> AsyncRead for CarriedStream<S> {
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         bufs: &mut [IoSliceMut<'_>],
-    ) -> Poll<io::Result<usize>> {
+    ) -> Poll<IoResult<usize>> {
         let this = self.as_mut().project();
         if !this.carried.is_empty() {
             let buf = bufs
@@ -42,7 +42,7 @@ impl<S: AsyncRead> AsyncRead for CarriedStream<S> {
 }
 
 impl<S: AsyncBufRead> AsyncBufRead for CarriedStream<S> {
-    fn poll_fill_buf(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<&[u8]>> {
+    fn poll_fill_buf(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<IoResult<&[u8]>> {
         let this = self.project();
         if !this.carried.is_empty() {
             return Poll::Ready(Ok(this.carried));
@@ -66,11 +66,7 @@ impl<S: AsyncBufRead> AsyncBufRead for CarriedStream<S> {
 }
 
 impl<S: AsyncWrite> AsyncWrite for CarriedStream<S> {
-    fn poll_write(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &[u8],
-    ) -> Poll<io::Result<usize>> {
+    fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<IoResult<usize>> {
         self.project().stream.poll_write(cx, buf)
     }
 
@@ -78,15 +74,15 @@ impl<S: AsyncWrite> AsyncWrite for CarriedStream<S> {
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         bufs: &[IoSlice<'_>],
-    ) -> Poll<io::Result<usize>> {
+    ) -> Poll<IoResult<usize>> {
         self.project().stream.poll_write_vectored(cx, bufs)
     }
 
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<IoResult<()>> {
         self.project().stream.poll_flush(cx)
     }
 
-    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<IoResult<()>> {
         self.project().stream.poll_close(cx)
     }
 }

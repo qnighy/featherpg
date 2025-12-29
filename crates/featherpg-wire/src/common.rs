@@ -2,7 +2,7 @@
 
 use std::{
     fmt,
-    io::{self, BufRead, IoSlice, IoSliceMut, Read, Write},
+    io::{BufRead, IoSlice, IoSliceMut, Read, Result as IoResult, Write},
 };
 
 #[cfg(any(feature = "futures", feature = "tokio"))]
@@ -38,7 +38,7 @@ pub(crate) fn read_from_vec(bytes: &mut Vec<u8>, buf: &mut [u8]) -> usize {
 }
 
 impl<S: Read> Read for CarriedStream<S> {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+    fn read(&mut self, buf: &mut [u8]) -> IoResult<usize> {
         if !self.carried.is_empty() {
             let result = read_from_vec(&mut self.carried, buf);
             return Ok(result);
@@ -46,7 +46,7 @@ impl<S: Read> Read for CarriedStream<S> {
         self.stream.read(buf)
     }
 
-    fn read_vectored(&mut self, bufs: &mut [IoSliceMut<'_>]) -> io::Result<usize> {
+    fn read_vectored(&mut self, bufs: &mut [IoSliceMut<'_>]) -> IoResult<usize> {
         if !self.carried.is_empty() {
             let buf = bufs
                 .iter_mut()
@@ -63,7 +63,7 @@ impl<S: Read> Read for CarriedStream<S> {
 }
 
 impl<S: BufRead> BufRead for CarriedStream<S> {
-    fn fill_buf(&mut self) -> io::Result<&[u8]> {
+    fn fill_buf(&mut self) -> IoResult<&[u8]> {
         if !self.carried.is_empty() {
             return Ok(&self.carried);
         }
@@ -85,15 +85,15 @@ impl<S: BufRead> BufRead for CarriedStream<S> {
 }
 
 impl<S: Write> Write for CarriedStream<S> {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+    fn write(&mut self, buf: &[u8]) -> IoResult<usize> {
         self.stream.write(buf)
     }
 
-    fn flush(&mut self) -> io::Result<()> {
+    fn flush(&mut self) -> IoResult<()> {
         self.stream.flush()
     }
 
-    fn write_vectored(&mut self, bufs: &[IoSlice<'_>]) -> io::Result<usize> {
+    fn write_vectored(&mut self, bufs: &[IoSlice<'_>]) -> IoResult<usize> {
         self.stream.write_vectored(bufs)
     }
 
@@ -101,15 +101,15 @@ impl<S: Write> Write for CarriedStream<S> {
     //     self.stream.is_write_vectored()
     // }
 
-    fn write_all(&mut self, buf: &[u8]) -> io::Result<()> {
+    fn write_all(&mut self, buf: &[u8]) -> IoResult<()> {
         self.stream.write_all(buf)
     }
 
-    // fn write_all_vectored(&mut self, bufs: &[IoSlice<'_>]) -> io::Result<()> {
+    // fn write_all_vectored(&mut self, bufs: &[IoSlice<'_>]) -> IoResult<()> {
     //     self.stream.write_all_vectored(bufs)
     // }
 
-    fn write_fmt(&mut self, fmt: fmt::Arguments<'_>) -> io::Result<()> {
+    fn write_fmt(&mut self, fmt: fmt::Arguments<'_>) -> IoResult<()> {
         self.stream.write_fmt(fmt)
     }
 }
