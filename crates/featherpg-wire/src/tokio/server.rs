@@ -1,5 +1,5 @@
 use std::future::Future;
-use std::io;
+use std::io::Result as IoResult;
 
 use tokio::io::{AsyncRead, AsyncWrite};
 
@@ -32,9 +32,7 @@ pub trait AsyncServe {
     /// and then re-enter the server loop with the upgraded connection.
     ///
     /// When it returns NoSSL, the server continues the normal startup process.
-    fn use_ssl(
-        &mut self,
-    ) -> impl std::future::Future<Output = Result<SSLResponse, io::Error>> + Send;
+    fn use_ssl(&mut self) -> impl Future<Output = IoResult<SSLResponse>> + Send;
 
     /// Handles a request to upgrade the connection to use GSSENC.
     /// Calls to this method may only occur before the `startup` method.
@@ -44,9 +42,7 @@ pub trait AsyncServe {
     /// and then re-enter the server loop with the upgraded connection.
     ///
     /// When it returns NoGSSENC, the server continues the normal startup process.
-    fn use_gssenc(
-        &mut self,
-    ) -> impl std::future::Future<Output = Result<GSSENCResponse, io::Error>> + Send;
+    fn use_gssenc(&mut self) -> impl Future<Output = IoResult<GSSENCResponse>> + Send;
 
     /// Handles a cancel request from a client.
     /// Calls to this method may only occur before the `startup` method.
@@ -54,10 +50,7 @@ pub trait AsyncServe {
     /// When it is called, this connection will never go to
     /// the normal startup process, and the server loop will terminate
     /// after this method returns.
-    fn cancel(
-        &mut self,
-        req: CancelRequest,
-    ) -> impl std::future::Future<Output = Result<(), io::Error>> + Send;
+    fn cancel(&mut self, req: CancelRequest) -> impl Future<Output = IoResult<()>> + Send;
 }
 
 /// Runs a PostgreSQL wire protocol server on the given stream.

@@ -6,7 +6,7 @@ use std::{
     task::{Context, Poll},
 };
 
-use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite};
+use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite, ReadBuf};
 
 use crate::common::{CarriedStream, read_from_vec};
 
@@ -14,7 +14,7 @@ impl<S: AsyncRead> AsyncRead for CarriedStream<S> {
     fn poll_read(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-        buf: &mut tokio::io::ReadBuf<'_>,
+        buf: &mut ReadBuf<'_>,
     ) -> Poll<IoResult<()>> {
         let mut this = self.as_mut().project();
         if !this.carried.is_empty() {
