@@ -6,13 +6,11 @@ use std::{
     task::{Context, Poll},
 };
 
-use tokio::io::{
-    AsyncBufRead as TokioAsyncBufRead, AsyncRead as TokioAsyncRead, AsyncWrite as TokioAsyncWrite,
-};
+use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite};
 
 use crate::common::{CarriedStream, read_from_vec};
 
-impl<S: TokioAsyncRead> TokioAsyncRead for CarriedStream<S> {
+impl<S: AsyncRead> AsyncRead for CarriedStream<S> {
     fn poll_read(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -28,8 +26,7 @@ impl<S: TokioAsyncRead> TokioAsyncRead for CarriedStream<S> {
     }
 }
 
-#[cfg(feature = "tokio")]
-impl<S: TokioAsyncBufRead> TokioAsyncBufRead for CarriedStream<S> {
+impl<S: AsyncBufRead> AsyncBufRead for CarriedStream<S> {
     fn poll_fill_buf(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<&[u8]>> {
         let this = self.project();
         if !this.carried.is_empty() {
@@ -53,7 +50,7 @@ impl<S: TokioAsyncBufRead> TokioAsyncBufRead for CarriedStream<S> {
     }
 }
 
-impl<S: TokioAsyncWrite> TokioAsyncWrite for CarriedStream<S> {
+impl<S: AsyncWrite> AsyncWrite for CarriedStream<S> {
     fn poll_write(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
