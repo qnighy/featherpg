@@ -34,15 +34,16 @@ impl AsyncBufRead for BytesReader {
 
 impl<S: AsyncRead> AsyncRead for WithExcess<S> {
     fn poll_read(
-        mut self: Pin<&mut Self>,
+        self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<IoResult<()>> {
-        let mut this = self.as_mut().project();
+        let this = self.project();
         if !this.excess_read.is_empty() {
-            return Pin::new(&mut this.excess_read).poll_read(cx, buf);
+            Pin::new(this.excess_read).poll_read(cx, buf)
+        } else {
+            this.stream.poll_read(cx, buf)
         }
-        this.stream.poll_read(cx, buf)
     }
 }
 
@@ -50,18 +51,19 @@ impl<S: AsyncBufRead> AsyncBufRead for WithExcess<S> {
     fn poll_fill_buf(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<IoResult<&[u8]>> {
         let this = self.project();
         if !this.excess_read.is_empty() {
-            return Poll::Ready(Ok(this.excess_read));
+            Pin::new(this.excess_read).poll_fill_buf(cx)
+        } else {
+            this.stream.poll_fill_buf(cx)
         }
-        this.stream.poll_fill_buf(cx)
     }
 
-    fn consume(mut self: Pin<&mut Self>, amt: usize) {
-        let mut this = self.as_mut().project();
+    fn consume(self: Pin<&mut Self>, amt: usize) {
+        let this = self.project();
         if !this.excess_read.is_empty() {
-            Pin::new(&mut this.excess_read).consume(amt);
-            return;
+            Pin::new(this.excess_read).consume(amt);
+        } else {
+            this.stream.consume(amt);
         }
-        this.stream.consume(amt);
     }
 }
 

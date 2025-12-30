@@ -130,21 +130,18 @@ pub struct WithExcess<S> {
 impl<S: Read> Read for WithExcess<S> {
     fn read(&mut self, buf: &mut [u8]) -> IoResult<usize> {
         if !self.excess_read.is_empty() {
-            let result = self.excess_read.read(buf)?;
-            return Ok(result);
+            self.excess_read.read(buf)
+        } else {
+            self.stream.read(buf)
         }
-        self.stream.read(buf)
     }
 
     fn read_vectored(&mut self, bufs: &mut [IoSliceMut<'_>]) -> IoResult<usize> {
         if !self.excess_read.is_empty() {
-            let buf = bufs
-                .iter_mut()
-                .find(|b| !b.is_empty())
-                .map_or(&mut [][..], |b| &mut **b);
-            return self.read(buf);
+            self.excess_read.read_vectored(bufs)
+        } else {
+            self.stream.read_vectored(bufs)
         }
-        self.stream.read_vectored(bufs)
     }
 
     // fn is_read_vectored(&self) -> bool {
@@ -155,17 +152,18 @@ impl<S: Read> Read for WithExcess<S> {
 impl<S: BufRead> BufRead for WithExcess<S> {
     fn fill_buf(&mut self) -> IoResult<&[u8]> {
         if !self.excess_read.is_empty() {
-            return Ok(&self.excess_read);
+            self.excess_read.fill_buf()
+        } else {
+            self.stream.fill_buf()
         }
-        self.stream.fill_buf()
     }
 
     fn consume(&mut self, amt: usize) {
         if !self.excess_read.is_empty() {
             self.excess_read.consume(amt);
-            return;
+        } else {
+            self.stream.consume(amt);
         }
-        self.stream.consume(amt);
     }
 }
 
