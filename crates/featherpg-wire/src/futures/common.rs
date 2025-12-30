@@ -8,7 +8,7 @@ use std::{
 
 use futures::io::{AsyncBufRead, AsyncRead, AsyncWrite};
 
-use crate::common::{BytesReader, WithExcess, read_from_vec};
+use crate::common::{BytesReader, WithExcess};
 
 impl AsyncRead for BytesReader {
     fn poll_read(
@@ -49,8 +49,7 @@ impl<S: AsyncRead> AsyncRead for WithExcess<S> {
     ) -> Poll<IoResult<usize>> {
         let mut this = self.as_mut().project();
         if !this.excess_read.is_empty() {
-            let result = read_from_vec(&mut this.excess_read, buf);
-            return Poll::Ready(Ok(result));
+            return Pin::new(&mut this.excess_read).poll_read(cx, buf);
         }
         this.stream.poll_read(cx, buf)
     }
@@ -82,14 +81,9 @@ impl<S: AsyncBufRead> AsyncBufRead for WithExcess<S> {
     }
 
     fn consume(mut self: Pin<&mut Self>, amt: usize) {
-        let this = self.as_mut().project();
+        let mut this = self.as_mut().project();
         if !this.excess_read.is_empty() {
-            // We can assume amt <= carried.len()
-            if amt >= this.excess_read.len() {
-                *this.excess_read = Vec::new();
-            } else {
-                this.excess_read.drain(..amt);
-            }
+            Pin::new(&mut this.excess_read).consume(amt);
             return;
         }
         this.stream.consume(amt);

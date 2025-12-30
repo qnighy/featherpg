@@ -119,34 +119,18 @@ impl BytesReader {
 /// Roughly equivalent to `Chain<Cursor<Vec<u8>>, S>`, but:
 ///
 /// - Implements Write, forwarding it to the underlying stream.
-/// - Simplifies the buffer as the carried data is expected to be small.
 #[derive(Debug)]
 #[cfg_attr(any(feature = "futures", feature = "tokio"), pin_project)]
 pub struct WithExcess<S> {
-    pub excess_read: Vec<u8>,
+    pub excess_read: BytesReader,
     #[cfg_attr(any(feature = "futures", feature = "tokio"), pin)]
     pub stream: S,
-}
-
-pub(crate) fn read_from_vec(bytes: &mut Vec<u8>, buf: &mut [u8]) -> usize {
-    if buf.len() >= bytes.len() {
-        let len = bytes.len();
-        buf[..len].copy_from_slice(&bytes);
-        // Deallocate the buffer altogether
-        *bytes = Vec::new();
-        len
-    } else {
-        let len = buf.len();
-        buf.copy_from_slice(&bytes[..len]);
-        bytes.drain(..len);
-        len
-    }
 }
 
 impl<S: Read> Read for WithExcess<S> {
     fn read(&mut self, buf: &mut [u8]) -> IoResult<usize> {
         if !self.excess_read.is_empty() {
-            let result = read_from_vec(&mut self.excess_read, buf);
+            let result = self.excess_read.read(buf)?;
             return Ok(result);
         }
         self.stream.read(buf)
@@ -178,12 +162,7 @@ impl<S: BufRead> BufRead for WithExcess<S> {
 
     fn consume(&mut self, amt: usize) {
         if !self.excess_read.is_empty() {
-            // We can assume amt <= carried.len()
-            if amt >= self.excess_read.len() {
-                self.excess_read = Vec::new();
-            } else {
-                self.excess_read.drain(..amt);
-            }
+            self.excess_read.consume(amt);
             return;
         }
         self.stream.consume(amt);
