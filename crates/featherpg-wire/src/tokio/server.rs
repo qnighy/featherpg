@@ -1,13 +1,8 @@
 use std::future::Future;
 use std::io::Result as IoResult;
 
-use tokio::io::{AsyncRead, AsyncWrite};
-
+use crate::errors::ServerError;
 use crate::server::{CancelRequest, GSSENCResponse, SSLResponse, StartupRequest, StartupResponse};
-use crate::{
-    errors::{HandleConnectionError, ServerError},
-    io_util::ByteQueue,
-};
 
 /// Defines an interface that a PostgreSQL wire protocol server must implement
 /// using the asynchronous I/O model.
@@ -51,19 +46,4 @@ pub trait AsyncServe {
     /// the normal startup process, and the server loop will terminate
     /// after this method returns.
     fn cancel(&mut self, req: CancelRequest) -> impl Future<Output = IoResult<()>> + Send;
-}
-
-/// Runs a PostgreSQL wire protocol server on the given stream.
-#[cfg(feature = "tokio")]
-pub fn handle_async_tokio_connection<Sv, St>(
-    server: &mut Sv,
-    stream: St,
-) -> Result<(), HandleConnectionError<St>>
-where
-    Sv: AsyncServe + ?Sized,
-    St: AsyncRead + AsyncWrite,
-{
-    let mut read_queue = ByteQueue::new();
-    let mut read_tmp = vec![0u8; 1024];
-    Ok(())
 }

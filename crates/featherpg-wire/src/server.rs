@@ -1,9 +1,6 @@
-use std::io::{self, Read, Write};
+use std::io::Result as IoResult;
 
-use crate::{
-    errors::{HandleConnectionError, ServerError},
-    io_util::ByteQueue,
-};
+use crate::errors::ServerError;
 
 /// Defines an interface that a PostgreSQL wire protocol server must implement
 /// using the synchronous I/O model.
@@ -25,7 +22,7 @@ pub trait Serve {
     /// and then re-enter the server loop with the upgraded connection.
     ///
     /// When it returns NoSSL, the server continues the normal startup process.
-    fn use_ssl(&mut self) -> Result<SSLResponse, io::Error>;
+    fn use_ssl(&mut self) -> IoResult<SSLResponse>;
 
     /// Handles a request to upgrade the connection to use GSSENC.
     /// Calls to this method may only occur before the `startup` method.
@@ -35,7 +32,7 @@ pub trait Serve {
     /// and then re-enter the server loop with the upgraded connection.
     ///
     /// When it returns NoGSSENC, the server continues the normal startup process.
-    fn use_gssenc(&mut self) -> Result<GSSENCResponse, io::Error>;
+    fn use_gssenc(&mut self) -> IoResult<GSSENCResponse>;
 
     /// Handles a cancel request from a client.
     /// Calls to this method may only occur before the `startup` method.
@@ -43,7 +40,7 @@ pub trait Serve {
     /// When it is called, this connection will never go to
     /// the normal startup process, and the server loop will terminate
     /// after this method returns.
-    fn cancel(&mut self, req: CancelRequest) -> Result<(), io::Error>;
+    fn cancel(&mut self, req: CancelRequest) -> IoResult<()>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -81,18 +78,4 @@ pub enum GSSENCResponse {
 pub struct CancelRequest {
     pub process_id: i32,
     pub secret_key: Vec<u8>,
-}
-
-/// Runs a PostgreSQL wire protocol server on the given stream.
-pub fn handle_connection<Sv, St>(
-    server: &mut Sv,
-    stream: St,
-) -> Result<(), HandleConnectionError<St>>
-where
-    Sv: Serve + ?Sized,
-    St: Read + Write,
-{
-    let mut read_queue = ByteQueue::new();
-    let mut read_tmp = vec![0u8; 1024];
-    Ok(())
 }
