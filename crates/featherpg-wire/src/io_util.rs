@@ -8,8 +8,11 @@ use std::{
 /// A buffer for reading, such as BufReader, but which can grow as needed.
 #[derive(Debug)]
 pub(crate) struct GrowableBuffer {
+    // Always buf.len() == buf.capacity().
+    // Therefore it is technically Box<[u8]> but Vec<u8> is easier to work with.
     buf: Vec<u8>,
-    pos: usize,
+    start_pos: usize,
+    end_pos: usize,
     unit_size: usize,
 }
 
@@ -24,8 +27,9 @@ impl GrowableBuffer {
     /// from the underlying reader.
     pub(crate) fn with_unit_size(unit_size: usize) -> Self {
         Self {
-            buf: Vec::with_capacity(unit_size * 2),
-            pos: 0,
+            buf: vec![0; unit_size * 2],
+            start_pos: 0,
+            end_pos: 0,
             unit_size,
         }
     }
@@ -34,48 +38,61 @@ impl GrowableBuffer {
     where
         R: Read + ?Sized,
     {
-        if self.pos > 0 {
-            self.buf.drain(0..self.pos);
-            self.pos = 0;
+        if self.start_pos > 0 {
+            self.buf.copy_within(self.start_pos..self.end_pos, 0);
+            self.end_pos -= self.start_pos;
+            self.start_pos = 0;
 
-            if self.buf.capacity() > self.unit_size * 4 {
-                self.buf.shrink_to(self.unit_size * 2);
+            if self.buf.len() > self.unit_size * 4 {
+                self.buf.truncate(self.unit_size * 2);
+                self.buf.shrink_to_fit();
             }
         }
 
-        // Grow, read, and then truncate.
-        let old_len = self.buf.len();
-        self.buf.resize(self.buf.len() + self.unit_size, 0);
-        let num_read = reader.read(&mut self.buf[old_len..])?;
-        self.buf.truncate(old_len + num_read);
+        self.reserve(self.unit_size);
+        let num_read = reader.read(&mut self.buf[self.end_pos..])?;
+        self.end_pos += num_read;
 
         Ok(self.buffer())
     }
 
     /// Consumes `count` bytes from the front of the buffer.
     pub(crate) fn consume(&mut self, count: usize) {
-        assert!(self.pos + count <= self.buf.len());
-        self.pos += count;
+        assert!(self.start_pos + count <= self.end_pos);
+        self.start_pos += count;
     }
 
     /// Returns the contents of the buffer that have not yet been consumed.
     pub(crate) fn buffer(&self) -> &[u8] {
-        &self.buf[self.pos..]
+        &self.buf[self.start_pos..self.end_pos]
     }
 
     /// Returns the contents of the buffer, reusing the internal buffer.
     pub(crate) fn into_buffer(self) -> Vec<u8> {
         let mut buf = self.buf;
-        buf.drain(0..self.pos);
+        buf.truncate(self.end_pos);
+        buf.drain(0..self.start_pos);
         buf
+    }
+
+    fn reserve(&mut self, additional: usize) {
+        if self.end_pos + additional <= self.buf.len() {
+            return;
+        }
+
+        self.buf.reserve(self.end_pos + additional - self.buf.len());
+        self.buf.resize(self.buf.capacity(), 0);
     }
 }
 
 impl From<Vec<u8>> for GrowableBuffer {
-    fn from(vec: Vec<u8>) -> Self {
+    fn from(mut vec: Vec<u8>) -> Self {
+        let end_pos = vec.len();
+        vec.resize(vec.capacity(), 0);
         GrowableBuffer {
             buf: vec,
-            pos: 0,
+            start_pos: 0,
+            end_pos,
             unit_size: 8192,
         }
     }
