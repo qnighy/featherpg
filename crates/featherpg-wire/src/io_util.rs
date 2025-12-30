@@ -38,6 +38,15 @@ impl GrowableBuffer {
     where
         R: Read + ?Sized,
     {
+        self.before_fill_buf();
+
+        let num_read = reader.read(self.spare_capacity_mut())?;
+        self.mark_filled(num_read);
+
+        Ok(self.buffer())
+    }
+
+    pub(crate) fn before_fill_buf(&mut self) {
         if self.start_pos > 0 {
             self.buf.copy_within(self.start_pos..self.end_pos, 0);
             self.end_pos -= self.start_pos;
@@ -50,10 +59,14 @@ impl GrowableBuffer {
         }
 
         self.reserve(self.unit_size);
-        let num_read = reader.read(&mut self.buf[self.end_pos..])?;
-        self.end_pos += num_read;
+    }
 
-        Ok(self.buffer())
+    pub(crate) fn spare_capacity_mut(&mut self) -> &mut [u8] {
+        &mut self.buf[self.end_pos..]
+    }
+
+    pub(crate) fn mark_filled(&mut self, num_bytes: usize) {
+        self.end_pos += num_bytes;
     }
 
     /// Consumes `count` bytes from the front of the buffer.
