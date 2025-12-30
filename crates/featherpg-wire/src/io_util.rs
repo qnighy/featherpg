@@ -80,7 +80,9 @@ impl GrowableBuffer {
             return;
         }
 
-        self.buf.reserve(self.end_pos + additional - self.buf.len());
+        let new_cap = (self.end_pos + additional).max(self.buf.len() * 2);
+
+        self.buf.reserve_exact(new_cap - self.buf.len());
         self.buf.resize(self.buf.capacity(), 0);
     }
 }
@@ -345,6 +347,45 @@ impl From<ByteQueue> for Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_growable_buffer() {
+        let mut buffer = GrowableBuffer::with_unit_size(4);
+
+        // Using Chain to simulate a reader with multiple reads
+        let mut reader = b"Hello, world!\n"[..]
+            .chain(&b"Next line\n"[..])
+            .chain(&b"Final line\n"[..]);
+
+        let current = buffer.fill_buf(&mut reader).unwrap();
+        // Read of two units
+        assert_eq!(current, b"Hello, w");
+
+        buffer.consume(b"Hello, ".len());
+        assert_eq!(buffer.buffer(), b"w");
+
+        // Enough capacity. Read to the next boundary.
+        let current = buffer.fill_buf(&mut reader).unwrap();
+        assert_eq!(current, b"world!\n");
+
+        buffer.consume(b"world!\n".len());
+        assert_eq!(buffer.buffer(), b"");
+
+        let current = buffer.fill_buf(&mut reader).unwrap();
+        assert_eq!(current, b"Next lin");
+        // Extends the buffer and reads more.
+        let current = buffer.fill_buf(&mut reader).unwrap();
+        assert_eq!(current, b"Next line\n");
+
+        let current = buffer.fill_buf(&mut reader).unwrap();
+        // Still not enough capacity (four units)
+        assert_eq!(current, b"Next line\nFinal ");
+        let current = buffer.fill_buf(&mut reader).unwrap();
+        assert_eq!(current, b"Next line\nFinal line\n");
+
+        buffer.consume(b"Next line\nFinal line\n".len());
+        assert_eq!(buffer.buffer(), b"");
+    }
 
     #[test]
     fn test_extend_and_consume() {
