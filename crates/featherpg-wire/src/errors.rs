@@ -2,14 +2,14 @@ use std::io;
 
 use thiserror::Error;
 
-use crate::common::CarriedStream;
+use crate::common::WithExcess;
 
 #[derive(Debug, Error)]
 pub enum HandleConnectionError<S> {
     #[error("Upgrade to SSL/TLS is requested")]
-    UpgradeToSSL(CarriedStream<S>),
+    UpgradeToSSL(WithExcess<S>),
     #[error("Upgrade to GSSENC is requested")]
-    UpgradeToGSSENC(CarriedStream<S>),
+    UpgradeToGSSENC(WithExcess<S>),
     #[error(transparent)]
     Io(#[from] io::Error),
 }

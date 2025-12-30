@@ -122,8 +122,8 @@ impl BytesReader {
 /// - Simplifies the buffer as the carried data is expected to be small.
 #[derive(Debug)]
 #[cfg_attr(any(feature = "futures", feature = "tokio"), pin_project)]
-pub struct CarriedStream<S> {
-    pub carried: Vec<u8>,
+pub struct WithExcess<S> {
+    pub excess_read: Vec<u8>,
     #[cfg_attr(any(feature = "futures", feature = "tokio"), pin)]
     pub stream: S,
 }
@@ -143,17 +143,17 @@ pub(crate) fn read_from_vec(bytes: &mut Vec<u8>, buf: &mut [u8]) -> usize {
     }
 }
 
-impl<S: Read> Read for CarriedStream<S> {
+impl<S: Read> Read for WithExcess<S> {
     fn read(&mut self, buf: &mut [u8]) -> IoResult<usize> {
-        if !self.carried.is_empty() {
-            let result = read_from_vec(&mut self.carried, buf);
+        if !self.excess_read.is_empty() {
+            let result = read_from_vec(&mut self.excess_read, buf);
             return Ok(result);
         }
         self.stream.read(buf)
     }
 
     fn read_vectored(&mut self, bufs: &mut [IoSliceMut<'_>]) -> IoResult<usize> {
-        if !self.carried.is_empty() {
+        if !self.excess_read.is_empty() {
             let buf = bufs
                 .iter_mut()
                 .find(|b| !b.is_empty())
@@ -168,21 +168,21 @@ impl<S: Read> Read for CarriedStream<S> {
     // }
 }
 
-impl<S: BufRead> BufRead for CarriedStream<S> {
+impl<S: BufRead> BufRead for WithExcess<S> {
     fn fill_buf(&mut self) -> IoResult<&[u8]> {
-        if !self.carried.is_empty() {
-            return Ok(&self.carried);
+        if !self.excess_read.is_empty() {
+            return Ok(&self.excess_read);
         }
         self.stream.fill_buf()
     }
 
     fn consume(&mut self, amt: usize) {
-        if !self.carried.is_empty() {
+        if !self.excess_read.is_empty() {
             // We can assume amt <= carried.len()
-            if amt >= self.carried.len() {
-                self.carried = Vec::new();
+            if amt >= self.excess_read.len() {
+                self.excess_read = Vec::new();
             } else {
-                self.carried.drain(..amt);
+                self.excess_read.drain(..amt);
             }
             return;
         }
@@ -190,7 +190,7 @@ impl<S: BufRead> BufRead for CarriedStream<S> {
     }
 }
 
-impl<S: Write> Write for CarriedStream<S> {
+impl<S: Write> Write for WithExcess<S> {
     fn write(&mut self, buf: &[u8]) -> IoResult<usize> {
         self.stream.write(buf)
     }

@@ -8,7 +8,7 @@ use std::{
 
 use futures::io::{AsyncBufRead, AsyncRead, AsyncWrite};
 
-use crate::common::{BytesReader, CarriedStream, read_from_vec};
+use crate::common::{BytesReader, WithExcess, read_from_vec};
 
 impl AsyncRead for BytesReader {
     fn poll_read(
@@ -41,15 +41,15 @@ impl AsyncBufRead for BytesReader {
     }
 }
 
-impl<S: AsyncRead> AsyncRead for CarriedStream<S> {
+impl<S: AsyncRead> AsyncRead for WithExcess<S> {
     fn poll_read(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         buf: &mut [u8],
     ) -> Poll<IoResult<usize>> {
         let mut this = self.as_mut().project();
-        if !this.carried.is_empty() {
-            let result = read_from_vec(&mut this.carried, buf);
+        if !this.excess_read.is_empty() {
+            let result = read_from_vec(&mut this.excess_read, buf);
             return Poll::Ready(Ok(result));
         }
         this.stream.poll_read(cx, buf)
@@ -61,7 +61,7 @@ impl<S: AsyncRead> AsyncRead for CarriedStream<S> {
         bufs: &mut [IoSliceMut<'_>],
     ) -> Poll<IoResult<usize>> {
         let this = self.as_mut().project();
-        if !this.carried.is_empty() {
+        if !this.excess_read.is_empty() {
             let buf = bufs
                 .iter_mut()
                 .find(|b| !b.is_empty())
@@ -72,23 +72,23 @@ impl<S: AsyncRead> AsyncRead for CarriedStream<S> {
     }
 }
 
-impl<S: AsyncBufRead> AsyncBufRead for CarriedStream<S> {
+impl<S: AsyncBufRead> AsyncBufRead for WithExcess<S> {
     fn poll_fill_buf(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<IoResult<&[u8]>> {
         let this = self.project();
-        if !this.carried.is_empty() {
-            return Poll::Ready(Ok(this.carried));
+        if !this.excess_read.is_empty() {
+            return Poll::Ready(Ok(this.excess_read));
         }
         this.stream.poll_fill_buf(cx)
     }
 
     fn consume(mut self: Pin<&mut Self>, amt: usize) {
         let this = self.as_mut().project();
-        if !this.carried.is_empty() {
+        if !this.excess_read.is_empty() {
             // We can assume amt <= carried.len()
-            if amt >= this.carried.len() {
-                *this.carried = Vec::new();
+            if amt >= this.excess_read.len() {
+                *this.excess_read = Vec::new();
             } else {
-                this.carried.drain(..amt);
+                this.excess_read.drain(..amt);
             }
             return;
         }
@@ -96,7 +96,7 @@ impl<S: AsyncBufRead> AsyncBufRead for CarriedStream<S> {
     }
 }
 
-impl<S: AsyncWrite> AsyncWrite for CarriedStream<S> {
+impl<S: AsyncWrite> AsyncWrite for WithExcess<S> {
     fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<IoResult<usize>> {
         self.project().stream.poll_write(cx, buf)
     }
