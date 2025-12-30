@@ -8,7 +8,38 @@ use std::{
 
 use futures::io::{AsyncBufRead, AsyncRead, AsyncWrite};
 
-use crate::common::{CarriedStream, read_from_vec};
+use crate::common::{BytesReader, CarriedStream, read_from_vec};
+
+impl AsyncRead for BytesReader {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut [u8],
+    ) -> Poll<IoResult<usize>> {
+        self.get_mut()
+            .do_borrowed(|this| Pin::new(this).poll_read(cx, buf))
+    }
+
+    fn poll_read_vectored(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        bufs: &mut [IoSliceMut<'_>],
+    ) -> Poll<IoResult<usize>> {
+        self.get_mut()
+            .do_borrowed(|this| Pin::new(this).poll_read_vectored(cx, bufs))
+    }
+}
+
+impl AsyncBufRead for BytesReader {
+    fn poll_fill_buf(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<IoResult<&[u8]>> {
+        Poll::Ready(Ok(self.get_mut()))
+    }
+
+    fn consume(self: Pin<&mut Self>, amt: usize) {
+        self.get_mut()
+            .do_borrowed(|this| Pin::new(this).consume(amt));
+    }
+}
 
 impl<S: AsyncRead> AsyncRead for CarriedStream<S> {
     fn poll_read(
@@ -84,5 +115,39 @@ impl<S: AsyncWrite> AsyncWrite for CarriedStream<S> {
 
     fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<IoResult<()>> {
         self.project().stream.poll_close(cx)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use futures::{AsyncBufReadExt, AsyncReadExt};
+
+    use super::*;
+
+    #[futures_test::test]
+    async fn test_bytes_reader_read_simple() {
+        let mut reader = BytesReader::from(&b"hello"[..]);
+
+        let mut buf = vec![0u8; 3];
+        let n = reader.read(&mut buf).await.unwrap();
+        assert_eq!(&buf[..n], b"hel");
+        let n = reader.read(&mut buf).await.unwrap();
+        assert_eq!(&buf[..n], b"lo");
+        let n = reader.read(&mut buf).await.unwrap();
+        assert_eq!(&buf[..n], b"");
+    }
+
+    #[futures_test::test]
+    async fn test_bytes_reader_bufread() {
+        let mut reader = BytesReader::from(&b"hello"[..]);
+
+        let buf = reader.fill_buf().await.unwrap();
+        assert_eq!(buf, b"hello");
+        reader.consume_unpin(3);
+        let buf = reader.fill_buf().await.unwrap();
+        assert_eq!(buf, b"lo");
+        reader.consume_unpin(2);
+        let buf = reader.fill_buf().await.unwrap();
+        assert_eq!(buf, b"");
     }
 }

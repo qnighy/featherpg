@@ -8,7 +8,29 @@ use std::{
 
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite, ReadBuf};
 
-use crate::common::{CarriedStream, read_from_vec};
+use crate::common::{BytesReader, CarriedStream, read_from_vec};
+
+impl AsyncRead for BytesReader {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<IoResult<()>> {
+        self.get_mut()
+            .do_borrowed(|this| Pin::new(this).poll_read(cx, buf))
+    }
+}
+
+impl AsyncBufRead for BytesReader {
+    fn poll_fill_buf(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<&[u8]>> {
+        Poll::Ready(Ok(self.get_mut()))
+    }
+
+    fn consume(self: Pin<&mut Self>, amt: usize) {
+        self.get_mut()
+            .do_borrowed(|this| Pin::new(this).consume(amt));
+    }
+}
 
 impl<S: AsyncRead> AsyncRead for CarriedStream<S> {
     fn poll_read(
@@ -77,5 +99,39 @@ impl<S: AsyncWrite> AsyncWrite for CarriedStream<S> {
 
     fn is_write_vectored(&self) -> bool {
         false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use tokio::io::{AsyncBufReadExt, AsyncReadExt};
+
+    #[tokio::test]
+    async fn test_bytes_reader_read_simple() {
+        let mut reader = BytesReader::from(&b"hello"[..]);
+
+        let mut buf = vec![0u8; 3];
+        let n = reader.read(&mut buf).await.unwrap();
+        assert_eq!(&buf[..n], b"hel");
+        let n = reader.read(&mut buf).await.unwrap();
+        assert_eq!(&buf[..n], b"lo");
+        let n = reader.read(&mut buf).await.unwrap();
+        assert_eq!(&buf[..n], b"");
+    }
+
+    #[tokio::test]
+    async fn test_bytes_reader_bufread() {
+        let mut reader = BytesReader::from(&b"hello"[..]);
+
+        let buf = reader.fill_buf().await.unwrap();
+        assert_eq!(buf, b"hello");
+        reader.consume(3);
+        let buf = reader.fill_buf().await.unwrap();
+        assert_eq!(buf, b"lo");
+        reader.consume(2);
+        let buf = reader.fill_buf().await.unwrap();
+        assert_eq!(buf, b"");
     }
 }

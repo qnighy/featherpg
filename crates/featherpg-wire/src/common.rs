@@ -3,10 +3,116 @@
 use std::{
     fmt,
     io::{BufRead, IoSlice, IoSliceMut, Read, Result as IoResult, Write},
+    ops::{Deref, DerefMut},
 };
 
 #[cfg(any(feature = "futures", feature = "tokio"))]
 use pin_project::pin_project;
+
+/// A stream for reading from Vec<u8>.
+///
+/// Roughly equivalent to `Cursor<Vec<u8>>`, but:
+///
+/// - Frees the buffer when all data is consumed.
+pub struct BytesReader {
+    bytes: Vec<u8>,
+    pos: usize,
+}
+
+impl From<Vec<u8>> for BytesReader {
+    fn from(bytes: Vec<u8>) -> Self {
+        Self { bytes, pos: 0 }
+    }
+}
+
+impl From<&[u8]> for BytesReader {
+    fn from(bytes: &[u8]) -> Self {
+        Self {
+            bytes: bytes.to_owned(),
+            pos: 0,
+        }
+    }
+}
+
+impl From<BytesReader> for Vec<u8> {
+    fn from(reader: BytesReader) -> Self {
+        let mut vec = reader.bytes;
+        vec.drain(..reader.pos);
+        vec
+    }
+}
+
+impl Deref for BytesReader {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        &self.bytes[self.pos..]
+    }
+}
+
+impl DerefMut for BytesReader {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.bytes[self.pos..]
+    }
+}
+
+impl fmt::Debug for BytesReader {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        <[u8] as fmt::Debug>::fmt(self, f)
+    }
+}
+
+impl Clone for BytesReader {
+    fn clone(&self) -> Self {
+        Self::from(self as &[u8])
+    }
+}
+
+impl Read for BytesReader {
+    fn read(&mut self, buf: &mut [u8]) -> IoResult<usize> {
+        self.do_borrowed(|this| this.read(buf))
+    }
+
+    fn read_vectored(&mut self, bufs: &mut [IoSliceMut<'_>]) -> IoResult<usize> {
+        self.do_borrowed(|this| this.read_vectored(bufs))
+    }
+}
+
+impl BufRead for BytesReader {
+    fn fill_buf(&mut self) -> IoResult<&[u8]> {
+        Ok(self)
+    }
+
+    fn consume(&mut self, amt: usize) {
+        self.do_borrowed(|this| this.consume(amt));
+    }
+}
+
+impl BytesReader {
+    pub(crate) fn do_borrowed<F, R>(&mut self, f: F) -> R
+    where
+        F: FnOnce(&mut &[u8]) -> R,
+    {
+        let mut inner = self as &[u8];
+        let result = f(&mut inner);
+
+        self.truncate_front(inner.len());
+        result
+    }
+
+    fn truncate_front(&mut self, new_len: usize) {
+        self.pos = self.pos.max(self.bytes.len().saturating_sub(new_len));
+        self.cleanup();
+    }
+
+    fn cleanup(&mut self) {
+        if self.pos >= self.bytes.len() {
+            // Free the buffer
+            self.bytes = Vec::new();
+            self.pos = 0;
+        }
+    }
+}
 
 /// A stream equipped with previous data that was not consumed.
 ///
@@ -111,5 +217,37 @@ impl<S: Write> Write for CarriedStream<S> {
 
     fn write_fmt(&mut self, fmt: fmt::Arguments<'_>) -> IoResult<()> {
         self.stream.write_fmt(fmt)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_bytes_reader_read_simple() {
+        let mut reader = BytesReader::from(&b"hello"[..]);
+
+        let mut buf = vec![0u8; 3];
+        let n = reader.read(&mut buf).unwrap();
+        assert_eq!(&buf[..n], b"hel");
+        let n = reader.read(&mut buf).unwrap();
+        assert_eq!(&buf[..n], b"lo");
+        let n = reader.read(&mut buf).unwrap();
+        assert_eq!(&buf[..n], b"");
+    }
+
+    #[test]
+    fn test_bytes_reader_bufread() {
+        let mut reader = BytesReader::from(&b"hello"[..]);
+
+        let buf = reader.fill_buf().unwrap();
+        assert_eq!(buf, b"hello");
+        reader.consume(3);
+        let buf = reader.fill_buf().unwrap();
+        assert_eq!(buf, b"lo");
+        reader.consume(2);
+        let buf = reader.fill_buf().unwrap();
+        assert_eq!(buf, b"");
     }
 }
