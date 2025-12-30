@@ -1,6 +1,10 @@
 use std::io::Result as IoResult;
 
-use crate::errors::ServerError;
+use crate::{
+    common::WithExcess,
+    errors::ServerError,
+    io_util::{GrowableBuffer, WriteBuffer},
+};
 
 /// Defines an interface that a PostgreSQL wire protocol server must implement
 /// using the synchronous I/O model.
@@ -78,4 +82,32 @@ pub enum GSSENCResponse {
 pub struct CancelRequest {
     pub process_id: i32,
     pub secret_key: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct EncryptionCapabilities {
+    /// Allows upgrading the connection to SSL/TLS if true.
+    pub ssl: bool,
+    /// Allows upgrading the connection to GSSENC if true.
+    pub gssenc: bool,
+}
+
+#[derive(Debug)]
+pub enum NegotiatedEncryption<S> {
+    /// Continue the protocol in cleartext.
+    Cleartext(()),
+    /// You need to upgrade the connection to SSL/TLS.
+    UseSSL(WithExcess<S>),
+    /// You need to upgrade the connection to GSSENC.
+    UseGSSENC(WithExcess<S>),
+}
+
+pub fn negotiate_encryption<S>(
+    mut stream: S,
+    capabilities: &EncryptionCapabilities,
+) -> IoResult<NegotiatedEncryption<S>> {
+    let mut read_buf = GrowableBuffer::new();
+    let mut write_buf = WriteBuffer::new();
+
+    todo!();
 }
