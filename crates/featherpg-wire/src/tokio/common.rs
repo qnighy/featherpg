@@ -129,4 +129,56 @@ mod tests {
         let buf = reader.fill_buf().await.unwrap();
         assert_eq!(buf, b"");
     }
+
+    #[tokio::test]
+    async fn test_with_excess_read() {
+        let mut stream = WithExcess {
+            excess_read: BytesReader::from(&b"excess"[..]),
+            stream: BytesReader::from(&b"stream"[..]),
+        };
+
+        let mut buf = vec![0u8; 4];
+        let n = stream.read(&mut buf).await.unwrap();
+        assert_eq!(&buf[..n], b"exce");
+        let n = stream.read(&mut buf).await.unwrap();
+        assert_eq!(&buf[..n], b"ss");
+        let n = stream.read(&mut buf).await.unwrap();
+        assert_eq!(&buf[..n], b"stre");
+        let n = stream.read(&mut buf).await.unwrap();
+        assert_eq!(&buf[..n], b"am");
+        let n = stream.read(&mut buf).await.unwrap();
+        assert_eq!(&buf[..n], b"");
+    }
+
+    #[tokio::test]
+    async fn test_with_excess_read_to_end() {
+        let mut stream = WithExcess {
+            excess_read: BytesReader::from(&b"excess"[..]),
+            stream: BytesReader::from(&b"stream"[..]),
+        };
+
+        let mut all = Vec::new();
+        stream.read_to_end(&mut all).await.unwrap();
+        assert_eq!(&all[..], b"excessstream");
+    }
+
+    #[tokio::test]
+    async fn test_with_excess_bufread() {
+        let mut stream = WithExcess {
+            excess_read: BytesReader::from(&b"excess"[..]),
+            stream: BytesReader::from(&b"stream"[..]),
+        };
+
+        let buf = stream.fill_buf().await.unwrap();
+        assert_eq!(buf, b"excess");
+        stream.consume(4);
+        let buf = stream.fill_buf().await.unwrap();
+        assert_eq!(buf, b"ss");
+        stream.consume(2);
+        let buf = stream.fill_buf().await.unwrap();
+        assert_eq!(buf, b"stream");
+        stream.consume(6);
+        let buf = stream.fill_buf().await.unwrap();
+        assert_eq!(buf, b"");
+    }
 }
