@@ -1,7 +1,7 @@
 use std::{
     fmt,
     hash::Hash,
-    io::{Read, Result as IoResult, Write},
+    io::{BufRead, Read, Result as IoResult, Write},
     ops::{Deref, DerefMut},
 };
 
@@ -32,6 +32,19 @@ impl GrowableBuffer {
             end_pos: 0,
             unit_size,
         }
+    }
+
+    pub(crate) fn read<R>(&mut self, reader: &mut R, buf: &mut [u8]) -> IoResult<usize>
+    where
+        R: Read + ?Sized,
+    {
+        if self.buffer().is_empty() {
+            self.fill_buf(reader)?;
+        }
+        let num_read = buf.len().min(self.buffer().len());
+        buf[..num_read].copy_from_slice(&self.buffer()[..num_read]);
+        self.consume(num_read);
+        Ok(num_read)
     }
 
     pub(crate) fn fill_buf<R>(&mut self, reader: &mut R) -> IoResult<&[u8]>
@@ -208,6 +221,85 @@ impl WriteBuffer {
         writer.write_all(&self.buf)?;
         self.buf.clear();
         Ok(())
+    }
+
+    fn flush<W>(&mut self, writer: &mut W) -> IoResult<()>
+    where
+        W: Write + ?Sized,
+    {
+        self.flush_buf(writer)?;
+        writer.flush()?;
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct BufStream<S: ?Sized> {
+    read_buf: GrowableBuffer,
+    write_buf: WriteBuffer,
+    stream: S,
+}
+
+impl<S: ?Sized> BufStream<S> {
+    pub(crate) fn new(stream: S) -> Self
+    where
+        S: Sized,
+    {
+        Self {
+            read_buf: GrowableBuffer::new(),
+            write_buf: WriteBuffer::new(),
+            stream,
+        }
+    }
+
+    pub(crate) fn get_ref(&self) -> &S {
+        &self.stream
+    }
+
+    pub(crate) fn get_mut(&mut self) -> &mut S {
+        &mut self.stream
+    }
+
+    pub(crate) fn into_parts(self) -> (S, GrowableBuffer, WriteBuffer)
+    where
+        S: Sized,
+    {
+        (self.stream, self.read_buf, self.write_buf)
+    }
+}
+
+impl<S> Read for BufStream<S>
+where
+    S: Read + ?Sized,
+{
+    fn read(&mut self, buf: &mut [u8]) -> IoResult<usize> {
+        self.read_buf.read(&mut self.stream, buf)
+    }
+}
+
+impl<S> BufRead for BufStream<S>
+where
+    S: Read + ?Sized,
+{
+    fn fill_buf(&mut self) -> IoResult<&[u8]> {
+        self.read_buf.fill_buf(&mut self.stream)
+    }
+
+    fn consume(&mut self, amt: usize) {
+        self.read_buf.consume(amt);
+    }
+}
+
+impl<S> Write for BufStream<S>
+where
+    S: Write + ?Sized,
+{
+    fn write(&mut self, buf: &[u8]) -> IoResult<usize> {
+        self.write_buf.write(&mut self.stream, buf)
+    }
+
+    fn flush(&mut self) -> IoResult<()> {
+        self.write_buf.flush(&mut self.stream)
     }
 }
 
