@@ -64,7 +64,7 @@ impl GrowableBuffer {
         Ok(self.buffer())
     }
 
-    pub(crate) fn before_fill_buf(&mut self) {
+    fn before_fill_buf(&mut self) {
         if self.start_pos > 0 {
             self.buf.copy_within(self.start_pos..self.end_pos, 0);
             self.end_pos -= self.start_pos;
@@ -79,11 +79,11 @@ impl GrowableBuffer {
         self.reserve(self.unit_size);
     }
 
-    pub(crate) fn spare_capacity_mut(&mut self) -> &mut [u8] {
+    fn spare_capacity_mut(&mut self) -> &mut [u8] {
         &mut self.buf[self.end_pos..]
     }
 
-    pub(crate) fn mark_filled(&mut self, num_bytes: usize) {
+    fn mark_filled(&mut self, num_bytes: usize) {
         self.end_pos += num_bytes;
     }
 

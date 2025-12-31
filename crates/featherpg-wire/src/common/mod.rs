@@ -94,7 +94,7 @@ impl BufRead for BytesReader {
 }
 
 impl BytesReader {
-    pub(crate) fn do_borrowed<F, R>(&mut self, f: F) -> R
+    fn do_borrowed<F, R>(&mut self, f: F) -> R
     where
         F: FnOnce(&mut &[u8]) -> R,
     {

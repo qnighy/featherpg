@@ -191,11 +191,11 @@ where
 }
 
 #[derive(Debug)]
-pub(crate) struct InternalSession<S> {
-    pub(crate) stream: BufStream<S>,
+struct InternalSession<S> {
+    stream: BufStream<S>,
     // TODO: expose version and parameters
-    pub(crate) version: ProtocolVersion,
-    pub(crate) parameters: Vec<StartupParameter>,
+    version: ProtocolVersion,
+    parameters: Vec<StartupParameter>,
 }
 
 #[derive(Debug)]
