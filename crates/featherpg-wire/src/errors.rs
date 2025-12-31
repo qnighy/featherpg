@@ -11,29 +11,7 @@ pub enum ServerError {
 }
 
 #[derive(Debug, Error, Clone, PartialEq, Eq, Hash)]
-#[error("{message}")]
 pub struct DiagnosticMessage {
-    severity: DiagnosticSeverity,
-    localized_severity: String,
-    code: String,
-    message: String,
-    detail: Option<String>,
-    hint: Option<String>,
-    position: Option<i32>,
-    internal_position: Option<i32>,
-    internal_query: Option<String>,
-    where_: Option<String>,
-    schema_name: Option<String>,
-    table_name: Option<String>,
-    column_name: Option<String>,
-    data_type_name: Option<String>,
-    constraint_name: Option<String>,
-    file: Option<String>,
-    line: Option<i32>,
-    routine: Option<String>,
-}
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct DiagnosticMessage2 {
     severity: DiagnosticSeverity,
     localized_severity: CString,
     code: CString,
@@ -54,7 +32,7 @@ pub struct DiagnosticMessage2 {
     routine: Option<CString>,
 }
 
-impl fmt::Display for DiagnosticMessage2 {
+impl fmt::Display for DiagnosticMessage {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.message.to_string_lossy())
     }
