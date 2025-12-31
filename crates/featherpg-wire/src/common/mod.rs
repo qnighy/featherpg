@@ -9,6 +9,11 @@ use std::{
 #[cfg(any(feature = "futures", feature = "tokio"))]
 use pin_project::pin_project;
 
+#[cfg(feature = "futures")]
+mod futures;
+#[cfg(feature = "tokio")]
+mod tokio;
+
 /// A stream for reading from Vec<u8>.
 ///
 /// Roughly equivalent to `Cursor<Vec<u8>>`, but:
