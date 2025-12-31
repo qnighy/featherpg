@@ -5,6 +5,11 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
+#[cfg(feature = "futures")]
+mod futures;
+#[cfg(feature = "tokio")]
+mod tokio;
+
 /// A buffer for reading, such as BufReader, but which can grow as needed.
 #[derive(Debug)]
 pub(crate) struct GrowableBuffer {
