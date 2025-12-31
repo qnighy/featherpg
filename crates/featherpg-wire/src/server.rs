@@ -1,10 +1,11 @@
-use std::io::{Read, Result as IoResult};
+use std::io::{Read, Result as IoResult, Write};
 
 use crate::{
-    common::WithExcess,
+    common::{BytesReader, WithExcess},
     errors::ServerError,
     io_util::{BufStream, GrowableBuffer, WriteBuffer},
     message::{WireMessage, WireState},
+    message_common::WriteWireExt,
 };
 
 /// Defines an interface that a PostgreSQL wire protocol server must implement
@@ -96,11 +97,19 @@ pub struct EncryptionCapabilities {
 #[derive(Debug)]
 pub enum NegotiatedEncryption<S> {
     /// Continue the protocol in cleartext.
-    Cleartext(()),
+    Cleartext(ConnectionKind),
     /// You need to upgrade the connection to SSL/TLS.
     UseSSL(WithExcess<S>),
     /// You need to upgrade the connection to GSSENC.
     UseGSSENC(WithExcess<S>),
+}
+
+#[derive(Debug)]
+pub enum ConnectionKind {
+    /// Ordinary connection startup.
+    Startup(()),
+    /// An asynchronous cancel request.
+    Cancel(CancelRequest),
 }
 
 pub fn negotiate_encryption<S>(
@@ -108,11 +117,77 @@ pub fn negotiate_encryption<S>(
     capabilities: &EncryptionCapabilities,
 ) -> IoResult<NegotiatedEncryption<S>>
 where
-    S: Read,
+    S: Read + Write,
 {
     let mut stream = BufStream::new(stream);
 
-    let msg = WireMessage::read_from(&mut stream, WireState::BackendStartup)?;
+    let mut msg = WireMessage::read_from(&mut stream, WireState::BackendStartup)?;
 
-    todo!();
+    loop {
+        match msg {
+            WireMessage::SSLRequest => {
+                if capabilities.ssl {
+                    stream.write_u8(b'S')?;
+                    stream.flush()?;
+                    let (stream, read_buf, _) = stream.into_parts();
+                    return Ok(NegotiatedEncryption::UseSSL(WithExcess {
+                        stream,
+                        excess_read: BytesReader::from(Vec::from(read_buf)),
+                    }));
+                } else {
+                    stream.write_u8(b'N')?;
+                    msg = WireMessage::read_from(&mut stream, WireState::BackendStartup)?;
+                }
+            }
+            WireMessage::GSSENCRequest => {
+                if capabilities.gssenc {
+                    stream.write_u8(b'G')?;
+                    stream.flush()?;
+                    let (stream, read_buf, _) = stream.into_parts();
+                    return Ok(NegotiatedEncryption::UseGSSENC(WithExcess {
+                        stream,
+                        excess_read: BytesReader::from(Vec::from(read_buf)),
+                    }));
+                } else {
+                    stream.write_u8(b'N')?;
+                    msg = WireMessage::read_from(&mut stream, WireState::BackendStartup)?;
+                }
+            }
+            WireMessage::StartupMessage {
+                version,
+                parameters,
+            } => {
+                return Ok(NegotiatedEncryption::Cleartext(ConnectionKind::Startup(())));
+            }
+            WireMessage::CancelRequest {
+                process_id,
+                secret_key,
+            } => {
+                return Ok(NegotiatedEncryption::Cleartext(ConnectionKind::Cancel(
+                    CancelRequest {
+                        process_id,
+                        secret_key,
+                    },
+                )));
+            }
+            _ => unreachable!("Impossible due to parser state: {:?}", msg),
+        }
+    }
+}
+
+pub fn without_encryption<S>(stream: S) -> IoResult<ConnectionKind>
+where
+    S: Read + Write,
+{
+    match negotiate_encryption(
+        stream,
+        &EncryptionCapabilities {
+            ssl: false,
+            gssenc: false,
+        },
+    )? {
+        NegotiatedEncryption::Cleartext(connection_kind) => Ok(connection_kind),
+        NegotiatedEncryption::UseSSL(_) => unreachable!(),
+        NegotiatedEncryption::UseGSSENC(_) => unreachable!(),
+    }
 }
