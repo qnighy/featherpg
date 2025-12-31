@@ -1,4 +1,4 @@
-use std::io;
+use std::{ffi::CString, fmt, io};
 
 use thiserror::Error;
 
@@ -31,6 +31,33 @@ pub struct DiagnosticMessage {
     file: Option<String>,
     line: Option<i32>,
     routine: Option<String>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct DiagnosticMessage2 {
+    severity: DiagnosticSeverity,
+    localized_severity: CString,
+    code: CString,
+    message: CString,
+    detail: Option<CString>,
+    hint: Option<CString>,
+    position: Option<i32>,
+    internal_position: Option<i32>,
+    internal_query: Option<CString>,
+    where_: Option<CString>,
+    schema_name: Option<CString>,
+    table_name: Option<CString>,
+    column_name: Option<CString>,
+    data_type_name: Option<CString>,
+    constraint_name: Option<CString>,
+    file: Option<CString>,
+    line: Option<i32>,
+    routine: Option<CString>,
+}
+
+impl fmt::Display for DiagnosticMessage2 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.message.to_string_lossy())
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

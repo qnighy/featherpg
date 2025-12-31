@@ -1,11 +1,11 @@
 use std::{
-    ffi::{CStr, CString},
+    ffi::CString,
     io::{Error as IoError, ErrorKind as IoErrorKind, Result as IoResult, Write},
 };
 
 use crate::{
     ProtocolVersion,
-    message_common::{AsyncWriteWireExt, CommonAsyncWrite, Scanner, WireFormatError, WriteWireExt},
+    message_common::{Scanner, WireFormatError, WriteWireExt},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -50,18 +50,6 @@ impl StartupLikeMessage {
             StartupLikeMessage::SSLRequest(msg) => msg.write_body_to(writer),
             StartupLikeMessage::GSSENCRequest(msg) => msg.write_body_to(writer),
             StartupLikeMessage::CancelRequest(msg) => msg.write_body_to(writer),
-        }
-    }
-
-    pub(crate) async fn write_body_to_async<W>(&self, writer: &mut W) -> IoResult<()>
-    where
-        W: CommonAsyncWrite + ?Sized,
-    {
-        match self {
-            StartupLikeMessage::Startup(msg) => msg.write_body_to_async(writer).await,
-            StartupLikeMessage::SSLRequest(msg) => msg.write_body_to_async(writer).await,
-            StartupLikeMessage::GSSENCRequest(msg) => msg.write_body_to_async(writer).await,
-            StartupLikeMessage::CancelRequest(msg) => msg.write_body_to_async(writer).await,
         }
     }
 
@@ -118,33 +106,6 @@ impl StartupMessage {
         Ok(())
     }
 
-    async fn write_body_to_async<W>(&self, writer: &mut W) -> IoResult<()>
-    where
-        W: CommonAsyncWrite + ?Sized,
-    {
-        // fe-protocol3.c, build_startup_packet
-
-        writer.write_version_async(self.version).await?;
-        writer.write_bytes_async(b"user\0").await?;
-        writer
-            .write_cstring2_async(self.user_name.as_c_str())
-            .await?;
-        writer.write_bytes_async(b"database\0").await?;
-        writer
-            .write_cstring2_async(self.database_name.as_c_str())
-            .await?;
-        if let Some(options) = &self.cmdline_options {
-            writer.write_bytes_async(b"options\0").await?;
-            writer.write_cstring2_async(options).await?;
-        }
-        self.write_replication_mode_to_async(writer).await?;
-        self.write_protocol_options_to_async(writer).await?;
-        self.write_guc_options_to_async(writer).await?;
-        writer.write_u8_async(0).await?;
-
-        Ok(())
-    }
-
     fn write_replication_mode_to<W>(&self, writer: &mut W) -> IoResult<()>
     where
         W: Write + ?Sized,
@@ -162,23 +123,6 @@ impl StartupMessage {
         Ok(())
     }
 
-    async fn write_replication_mode_to_async<W>(&self, writer: &mut W) -> IoResult<()>
-    where
-        W: CommonAsyncWrite + ?Sized,
-    {
-        match self.replication {
-            ReplicationMode::DatabaseReplication => {
-                writer.write_bytes_async(b"replication\0database\0").await?;
-            }
-            ReplicationMode::Replication => {
-                writer.write_bytes_async(b"replication\0true\0").await?;
-            }
-            ReplicationMode::None => {}
-        }
-
-        Ok(())
-    }
-
     fn write_protocol_options_to<W>(&self, writer: &mut W) -> IoResult<()>
     where
         W: Write + ?Sized,
@@ -187,19 +131,6 @@ impl StartupMessage {
             Self::validate_protocol_option(name, value)?;
             writer.write_cstring2(name.as_c_str())?;
             writer.write_cstring2(value.as_c_str())?;
-        }
-
-        Ok(())
-    }
-
-    async fn write_protocol_options_to_async<W>(&self, writer: &mut W) -> IoResult<()>
-    where
-        W: CommonAsyncWrite + ?Sized,
-    {
-        for (name, value) in &self.other_protocol_options {
-            Self::validate_protocol_option(name, value)?;
-            writer.write_cstring2_async(name.as_c_str()).await?;
-            writer.write_cstring2_async(value.as_c_str()).await?;
         }
 
         Ok(())
@@ -223,19 +154,6 @@ impl StartupMessage {
             Self::validate_guc_option(name, value)?;
             writer.write_cstring2(name.as_c_str())?;
             writer.write_cstring2(value.as_c_str())?;
-        }
-
-        Ok(())
-    }
-
-    async fn write_guc_options_to_async<W>(&self, writer: &mut W) -> IoResult<()>
-    where
-        W: CommonAsyncWrite + ?Sized,
-    {
-        for (name, value) in &self.guc_options {
-            Self::validate_guc_option(name, value)?;
-            writer.write_cstring2_async(name.as_c_str()).await?;
-            writer.write_cstring2_async(value.as_c_str()).await?;
         }
 
         Ok(())
@@ -350,15 +268,6 @@ impl SSLRequest {
         Ok(())
     }
 
-    async fn write_body_to_async<W>(&self, writer: &mut W) -> IoResult<()>
-    where
-        W: CommonAsyncWrite + ?Sized,
-    {
-        writer.write_version_async(Self::VERSION).await?;
-
-        Ok(())
-    }
-
     fn parse_with_version(
         scanner: Scanner<'_>,
         version: ProtocolVersion,
@@ -388,15 +297,6 @@ impl GSSENCRequest {
         W: Write + ?Sized,
     {
         writer.write_version(Self::VERSION)?;
-
-        Ok(())
-    }
-
-    async fn write_body_to_async<W>(&self, writer: &mut W) -> IoResult<()>
-    where
-        W: CommonAsyncWrite + ?Sized,
-    {
-        writer.write_version_async(Self::VERSION).await?;
 
         Ok(())
     }
@@ -439,18 +339,6 @@ impl CancelRequest {
         writer.write_version(Self::VERSION)?;
         writer.write_u32(self.process_id as u32)?;
         writer.write_bytes(&self.secret_key)?;
-
-        Ok(())
-    }
-
-    async fn write_body_to_async<W>(&self, writer: &mut W) -> IoResult<()>
-    where
-        W: CommonAsyncWrite + ?Sized,
-    {
-        self.validate_secret_key_length()?;
-        writer.write_version_async(Self::VERSION).await?;
-        writer.write_u32_async(self.process_id as u32).await?;
-        writer.write_bytes_async(&self.secret_key).await?;
 
         Ok(())
     }
