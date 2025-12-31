@@ -71,7 +71,7 @@ pub(crate) trait WriteWireExt: Write {
 
         Ok(())
     }
-    fn write_cstring(&mut self, s: &str) -> IoResult<()> {
+    fn write_cstring_old(&mut self, s: &str) -> IoResult<()> {
         assert!(!s.contains('\0'), "CString cannot contain null bytes");
         self.write_all(s.as_bytes())?;
         self.write_u8(0)
@@ -109,7 +109,7 @@ impl<'a> Scanner<'a> {
         &self.data[start..]
     }
 
-    pub(super) fn read_cstring(&mut self) -> Result<String, WireFormatError> {
+    pub(super) fn read_cstring_old(&mut self) -> Result<String, WireFormatError> {
         let start = self.position;
         while self.position < self.data.len() && self.data[self.position] != 0 {
             self.position += 1;

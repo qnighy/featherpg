@@ -277,10 +277,10 @@ impl WireMessage {
                 writer.write_usize32(size)?;
                 writer.write_version(*version)?;
                 for param in parameters {
-                    writer.write_cstring(&param.name)?;
-                    writer.write_cstring(&param.value)?;
+                    writer.write_cstring_old(&param.name)?;
+                    writer.write_cstring_old(&param.value)?;
                 }
-                writer.write_cstring("")?;
+                writer.write_cstring_old("")?;
             }
             WireMessage::SSLRequest => {
                 writer.write_usize32(size)?;
@@ -338,9 +338,9 @@ impl WireMessage {
                 writer.write_u32(AUTH_TYPE_SASL)?;
                 for mechanism in mechanisms {
                     assert!(!mechanism.is_empty(), "SASL mechanism cannot be empty");
-                    writer.write_cstring(mechanism)?;
+                    writer.write_cstring_old(mechanism)?;
                 }
-                writer.write_cstring("")?;
+                writer.write_cstring_old("")?;
             }
             WireMessage::NegotiateProtocolVersion {
                 version,
@@ -351,7 +351,7 @@ impl WireMessage {
                 writer.write_version(*version)?;
                 writer.write_u32(u32::try_from(unrecognized_options.len()).unwrap())?;
                 for option in unrecognized_options {
-                    writer.write_cstring(option)?;
+                    writer.write_cstring_old(option)?;
                 }
             }
 
@@ -451,11 +451,11 @@ impl WireMessage {
                     _ => {
                         let mut parameters = Vec::new();
                         loop {
-                            let name = scanner.read_cstring()?;
+                            let name = scanner.read_cstring_old()?;
                             if name.is_empty() {
                                 break;
                             }
-                            let value = scanner.read_cstring()?;
+                            let value = scanner.read_cstring_old()?;
                             parameters.push(StartupParameter { name, value });
                         }
                         WireMessage::StartupMessage {
@@ -485,7 +485,7 @@ impl WireMessage {
                     AUTH_TYPE_SASL => {
                         let mut mechanisms = Vec::new();
                         loop {
-                            let mechanism = scanner.read_cstring()?;
+                            let mechanism = scanner.read_cstring_old()?;
                             if mechanism.is_empty() {
                                 break;
                             }
@@ -509,7 +509,7 @@ impl WireMessage {
                 let option_count = scanner.read_u32()?;
                 let mut unrecognized_options = Vec::with_capacity(option_count as usize);
                 for _ in 0..option_count {
-                    let option = scanner.read_cstring()?;
+                    let option = scanner.read_cstring_old()?;
                     unrecognized_options.push(option);
                 }
                 WireMessage::NegotiateProtocolVersion {
