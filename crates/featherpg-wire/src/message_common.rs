@@ -5,8 +5,6 @@ use std::{
 
 use thiserror::Error;
 
-use crate::io_util::ByteQueue;
-
 /// Represents a protocol version with major and minor numbers.
 ///
 /// PostgreSQL uses the versions 3.0 to 3.2 for the frontend/backend protocol.
@@ -80,63 +78,6 @@ pub(crate) trait WriteWireExt: Write {
 }
 
 impl<T: Write + ?Sized> WriteWireExt for T {}
-
-pub(crate) struct LengthReservation {
-    position: usize,
-}
-
-pub(crate) trait ByteQueueWriteExt {
-    fn write_bytes(&mut self, bytes: &[u8]);
-    fn write_u8(&mut self, value: u8);
-    fn write_u16(&mut self, value: u16);
-    fn write_u32(&mut self, value: u32);
-    fn write_version(&mut self, version: ProtocolVersion);
-    fn write_cstring(&mut self, s: &str);
-
-    fn write_length_placeholder(&mut self) -> LengthReservation;
-    fn write_length_back(&mut self, reservation: LengthReservation);
-}
-
-impl ByteQueueWriteExt for ByteQueue {
-    fn write_bytes(&mut self, bytes: &[u8]) {
-        self.extend_from_slice(bytes);
-    }
-
-    fn write_u8(&mut self, value: u8) {
-        self.extend_from_slice(&[value]);
-    }
-
-    fn write_u16(&mut self, value: u16) {
-        self.extend_from_slice(&value.to_be_bytes());
-    }
-
-    fn write_u32(&mut self, value: u32) {
-        self.extend_from_slice(&value.to_be_bytes());
-    }
-
-    fn write_version(&mut self, version: ProtocolVersion) {
-        self.write_u16(version.major);
-        self.write_u16(version.minor);
-    }
-
-    fn write_cstring(&mut self, s: &str) {
-        assert!(!s.contains('\0'), "CString cannot contain null bytes");
-        self.extend_from_slice(s.as_bytes());
-        self.write_u8(0);
-    }
-
-    fn write_length_placeholder(&mut self) -> LengthReservation {
-        let position = self.len();
-        self.write_u32(0); // Placeholder
-        LengthReservation { position }
-    }
-
-    fn write_length_back(&mut self, reservation: LengthReservation) {
-        let LengthReservation { position } = reservation;
-        let len = u32::try_from(self.len() - position).unwrap();
-        self[position..position + 4].copy_from_slice(&len.to_be_bytes());
-    }
-}
 
 pub(super) struct Scanner<'a> {
     data: &'a [u8],

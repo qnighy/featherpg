@@ -8,10 +8,7 @@ use std::io::{
 use crate::{
     errors::DiagnosticMessage,
     io_util::BufStream,
-    message_common::{
-        ByteQueueWriteExt, LengthCounter, LengthReservation, ProtocolVersion, Scanner,
-        WireFormatError, WriteWireExt,
-    },
+    message_common::{LengthCounter, ProtocolVersion, Scanner, WireFormatError, WriteWireExt},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
