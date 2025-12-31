@@ -91,12 +91,12 @@ impl StartupMessage {
 
         writer.write_version(self.version)?;
         writer.write_bytes(b"user\0")?;
-        writer.write_cstring2(self.user_name.as_c_str())?;
+        writer.write_cstring(self.user_name.as_c_str())?;
         writer.write_bytes(b"database\0")?;
-        writer.write_cstring2(self.database_name.as_c_str())?;
+        writer.write_cstring(self.database_name.as_c_str())?;
         if let Some(options) = &self.cmdline_options {
             writer.write_bytes(b"options\0")?;
-            writer.write_cstring2(options)?;
+            writer.write_cstring(options)?;
         }
         self.write_replication_mode_to(writer)?;
         self.write_protocol_options_to(writer)?;
@@ -129,8 +129,8 @@ impl StartupMessage {
     {
         for (name, value) in &self.other_protocol_options {
             Self::validate_protocol_option(name, value)?;
-            writer.write_cstring2(name.as_c_str())?;
-            writer.write_cstring2(value.as_c_str())?;
+            writer.write_cstring(name.as_c_str())?;
+            writer.write_cstring(value.as_c_str())?;
         }
 
         Ok(())
@@ -152,8 +152,8 @@ impl StartupMessage {
     {
         for (name, value) in &self.guc_options {
             Self::validate_guc_option(name, value)?;
-            writer.write_cstring2(name.as_c_str())?;
-            writer.write_cstring2(value.as_c_str())?;
+            writer.write_cstring(name.as_c_str())?;
+            writer.write_cstring(value.as_c_str())?;
         }
 
         Ok(())
@@ -194,11 +194,11 @@ impl StartupMessage {
         let mut guc_options = Vec::new();
 
         loop {
-            let name = scanner.read_cstring2(WireFormatError::StartupPacketUnterminatedString)?;
+            let name = scanner.read_cstring(WireFormatError::StartupPacketUnterminatedString)?;
             if name.is_empty() {
                 break;
             }
-            let value = scanner.read_cstring2(WireFormatError::StartupPacketUnterminatedString)?;
+            let value = scanner.read_cstring(WireFormatError::StartupPacketUnterminatedString)?;
 
             match name.as_bytes() {
                 b"database" => database_name = Some(value),

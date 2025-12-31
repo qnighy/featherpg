@@ -76,7 +76,7 @@ pub(crate) trait WriteWireExt: Write {
         self.write_all(s.as_bytes())?;
         self.write_u8(0)
     }
-    fn write_cstring2(&mut self, s: &CStr) -> IoResult<()> {
+    fn write_cstring(&mut self, s: &CStr) -> IoResult<()> {
         self.write_all(s.to_bytes_with_nul())
     }
 }
@@ -126,7 +126,7 @@ impl<'a> Scanner<'a> {
         Ok(s)
     }
 
-    pub(super) fn read_cstring2(
+    pub(super) fn read_cstring(
         &mut self,
         on_runaway: WireFormatError,
     ) -> Result<CString, WireFormatError> {
