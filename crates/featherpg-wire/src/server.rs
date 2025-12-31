@@ -1,9 +1,10 @@
 use std::io::{Read, Result as IoResult, Write};
 
 use crate::{
+    ProtocolVersion,
     common::{BytesReader, WithExcess},
     io_util::BufStream,
-    message::{WireMessage, WireState},
+    message::{StartupParameter, WireMessage, WireState},
     message_common::WriteWireExt,
 };
 
@@ -24,7 +25,7 @@ pub struct EncryptionCapabilities {
 #[derive(Debug)]
 pub enum NegotiatedEncryption<S> {
     /// Continue the protocol in cleartext.
-    Cleartext(ConnectionKind),
+    Cleartext(ConnectionKind<S>),
     /// You need to upgrade the connection to SSL/TLS.
     UseSSL(WithExcess<S>),
     /// You need to upgrade the connection to GSSENC.
@@ -32,9 +33,9 @@ pub enum NegotiatedEncryption<S> {
 }
 
 #[derive(Debug)]
-pub enum ConnectionKind {
+pub enum ConnectionKind<S> {
     /// Ordinary connection startup.
-    Startup(()),
+    Startup(Authentication<S>),
     /// An asynchronous cancel request.
     Cancel(CancelRequest),
 }
@@ -81,10 +82,17 @@ where
                 }
             }
             WireMessage::StartupMessage {
-                version,
-                parameters,
+                mut version,
+                mut parameters,
             } => {
-                return Ok(NegotiatedEncryption::Cleartext(ConnectionKind::Startup(())));
+                negotiate_protocol(&mut stream, &mut version, &mut parameters)?;
+                return Ok(NegotiatedEncryption::Cleartext(ConnectionKind::Startup(
+                    Authentication {
+                        stream,
+                        version,
+                        parameters,
+                    },
+                )));
             }
             WireMessage::CancelRequest {
                 process_id,
@@ -102,7 +110,7 @@ where
     }
 }
 
-pub fn without_encryption<S>(stream: S) -> IoResult<ConnectionKind>
+pub fn without_encryption<S>(stream: S) -> IoResult<ConnectionKind<S>>
 where
     S: Read + Write,
 {
@@ -118,3 +126,48 @@ where
         NegotiatedEncryption::UseGSSENC(_) => unreachable!(),
     }
 }
+
+fn negotiate_protocol<S>(
+    stream: &mut BufStream<S>,
+    version: &mut ProtocolVersion,
+    parameters: &mut Vec<StartupParameter>,
+) -> IoResult<()>
+where
+    S: Read + Write,
+{
+    let new_version = if *version >= ProtocolVersion::new(3, 2) {
+        ProtocolVersion::new(3, 2)
+    } else {
+        // TODO: reject requests for versions < 3.0
+        ProtocolVersion::new(3, 0)
+    };
+    let mut unrecognized_options = Vec::new();
+    for param in &*parameters {
+        if param.name.starts_with("_pq_.") {
+            unrecognized_options.push(param.name.clone());
+        }
+    }
+    if !unrecognized_options.is_empty() {
+        parameters.retain(|param| !param.name.starts_with("_pq_."));
+    }
+
+    if new_version != *version || !unrecognized_options.is_empty() {
+        let msg = WireMessage::NegotiateProtocolVersion {
+            version: new_version,
+            unrecognized_options,
+        };
+        msg.write_to(stream)?;
+    }
+
+    Ok(())
+}
+
+#[derive(Debug)]
+pub struct Authentication<S> {
+    stream: BufStream<S>,
+    // TODO: expose version and parameters
+    version: ProtocolVersion,
+    parameters: Vec<StartupParameter>,
+}
+
+impl<S> Authentication<S> where S: Read + Write {}
