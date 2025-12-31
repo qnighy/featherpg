@@ -120,9 +120,17 @@ impl StartupMessage {
             .read_eof()
             .map_err(|_| WireFormatError::StartupPacketExtraBytes)?;
 
+        if user_name.as_ref().is_some_and(|s| s.is_empty()) {
+            user_name = None;
+        }
+
         let Some(user_name) = user_name else {
             return Err(WireFormatError::MissingUserName);
         };
+
+        if database_name.as_ref().is_some_and(|s| s.is_empty()) {
+            database_name = None;
+        }
 
         let database_name = database_name.unwrap_or_else(|| user_name.clone());
 
@@ -273,12 +281,261 @@ mod tests {
     }
 
     #[test]
+    fn test_startup_message_parsing_missing_database_fallback() {
+        let data = &b"\x00\x03\x00\x00user\0testuser\0\0"[..];
+        let msg = StartupLikeMessage::parse_body(data).unwrap();
+
+        assert_eq!(
+            msg,
+            StartupMessage {
+                version: ProtocolVersion::new(3, 0),
+                database_name: CString::new("testuser").unwrap(),
+                user_name: CString::new("testuser").unwrap(),
+                cmdline_options: None,
+                replication: ReplicationMode::None,
+                other_protocol_options: vec![],
+                guc_options: vec![],
+            }
+            .into()
+        );
+    }
+
+    #[test]
+    fn test_startup_message_parsing_empty_database_fallback() {
+        let data = &b"\x00\x03\x00\x00user\0testuser\0database\0\0\0"[..];
+        let msg = StartupLikeMessage::parse_body(data).unwrap();
+
+        assert_eq!(
+            msg,
+            StartupMessage {
+                version: ProtocolVersion::new(3, 0),
+                database_name: CString::new("testuser").unwrap(),
+                user_name: CString::new("testuser").unwrap(),
+                cmdline_options: None,
+                replication: ReplicationMode::None,
+                other_protocol_options: vec![],
+                guc_options: vec![],
+            }
+            .into()
+        );
+    }
+
+    #[test]
+    fn test_startup_message_parsing_cmdline_options() {
+        let data = &b"\x00\x03\x00\x00user\0testuser\0database\0testdb\0options\0-S 8192\0\0"[..];
+        let msg = StartupLikeMessage::parse_body(data).unwrap();
+
+        assert_eq!(
+            msg,
+            StartupMessage {
+                version: ProtocolVersion::new(3, 0),
+                database_name: CString::new("testdb").unwrap(),
+                user_name: CString::new("testuser").unwrap(),
+                cmdline_options: Some(CString::new("-S 8192").unwrap()),
+                replication: ReplicationMode::None,
+                other_protocol_options: vec![],
+                guc_options: vec![],
+            }
+            .into()
+        );
+    }
+
+    #[test]
+    fn test_startup_message_parsing_replication_database() {
+        let data =
+            &b"\x00\x03\x00\x00user\0testuser\0database\0testdb\0replication\0database\0\0"[..];
+        let msg = StartupLikeMessage::parse_body(data).unwrap();
+
+        assert_eq!(
+            msg,
+            StartupMessage {
+                version: ProtocolVersion::new(3, 0),
+                database_name: CString::new("testdb").unwrap(),
+                user_name: CString::new("testuser").unwrap(),
+                cmdline_options: None,
+                replication: ReplicationMode::DatabaseReplication,
+                other_protocol_options: vec![],
+                guc_options: vec![],
+            }
+            .into()
+        );
+    }
+
+    #[test]
+    fn test_startup_message_parsing_replication_true() {
+        let data = &b"\x00\x03\x00\x00user\0testuser\0database\0testdb\0replication\0true\0\0"[..];
+        let msg = StartupLikeMessage::parse_body(data).unwrap();
+
+        assert_eq!(
+            msg,
+            StartupMessage {
+                version: ProtocolVersion::new(3, 0),
+                database_name: CString::new("testdb").unwrap(),
+                user_name: CString::new("testuser").unwrap(),
+                cmdline_options: None,
+                replication: ReplicationMode::Replication,
+                other_protocol_options: vec![],
+                guc_options: vec![],
+            }
+            .into()
+        );
+    }
+
+    #[test]
+    fn test_startup_message_parsing_replication_false() {
+        let data = &b"\x00\x03\x00\x00user\0testuser\0database\0testdb\0replication\0false\0\0"[..];
+        let msg = StartupLikeMessage::parse_body(data).unwrap();
+
+        assert_eq!(
+            msg,
+            StartupMessage {
+                version: ProtocolVersion::new(3, 0),
+                database_name: CString::new("testdb").unwrap(),
+                user_name: CString::new("testuser").unwrap(),
+                cmdline_options: None,
+                replication: ReplicationMode::None,
+                other_protocol_options: vec![],
+                guc_options: vec![],
+            }
+            .into()
+        );
+    }
+
+    #[test]
+    fn test_startup_message_parsing_protocol_options() {
+        let data =
+            &b"\x00\x03\x00\x00user\0testuser\0database\0testdb\0_pq_.foo\0bar\0_pq_.baz\0qux\0\0"
+                [..];
+        let msg = StartupLikeMessage::parse_body(data).unwrap();
+
+        assert_eq!(
+            msg,
+            StartupMessage {
+                version: ProtocolVersion::new(3, 0),
+                database_name: CString::new("testdb").unwrap(),
+                user_name: CString::new("testuser").unwrap(),
+                cmdline_options: None,
+                replication: ReplicationMode::None,
+                other_protocol_options: vec![
+                    (
+                        CString::new("_pq_.foo").unwrap(),
+                        CString::new("bar").unwrap()
+                    ),
+                    (
+                        CString::new("_pq_.baz").unwrap(),
+                        CString::new("qux").unwrap()
+                    ),
+                ],
+                guc_options: vec![],
+            }
+            .into()
+        );
+    }
+
+    #[test]
+    fn test_startup_message_parsing_guc_options() {
+        let data = &b"\x00\x03\x00\x00user\0testuser\0database\0testdb\0work_mem\04096\0search_path\0public\0\0"
+            [..];
+        let msg = StartupLikeMessage::parse_body(data).unwrap();
+
+        assert_eq!(
+            msg,
+            StartupMessage {
+                version: ProtocolVersion::new(3, 0),
+                database_name: CString::new("testdb").unwrap(),
+                user_name: CString::new("testuser").unwrap(),
+                cmdline_options: None,
+                replication: ReplicationMode::None,
+                other_protocol_options: vec![],
+                guc_options: vec![
+                    (
+                        CString::new("work_mem").unwrap(),
+                        CString::new("4096").unwrap()
+                    ),
+                    (
+                        CString::new("search_path").unwrap(),
+                        CString::new("public").unwrap()
+                    ),
+                ],
+            }
+            .into()
+        );
+    }
+
+    #[test]
+    fn test_startup_message_parse_error_unterminated_name() {
+        let data = &b"\x00\x03\x00\x00user"[..];
+        let err = StartupLikeMessage::parse_body(data).unwrap_err();
+
+        assert_eq!(
+            err.to_string(),
+            "invalid startup packet layout: expected terminator as last byte"
+        );
+    }
+
+    #[test]
+    fn test_startup_message_parse_error_unterminated_value() {
+        let data = &b"\x00\x03\x00\x00user\0testuser"[..];
+        let err = StartupLikeMessage::parse_body(data).unwrap_err();
+
+        assert_eq!(
+            err.to_string(),
+            "invalid startup packet layout: expected terminator as last byte"
+        );
+    }
+
+    #[test]
+    fn test_startup_message_parse_error_extra_bytes() {
+        let data = &b"\x00\x03\x00\x00user\0testuser\0database\0testdb\0\0extra"[..];
+        let err = StartupLikeMessage::parse_body(data).unwrap_err();
+
+        assert_eq!(
+            err.to_string(),
+            "invalid startup packet layout: expected terminator as last byte"
+        );
+    }
+
+    #[test]
+    fn test_startup_message_parse_error_missing_username() {
+        let data = &b"\x00\x03\x00\x00database\0testdb\0\0"[..];
+        let err = StartupLikeMessage::parse_body(data).unwrap_err();
+
+        assert_eq!(
+            err.to_string(),
+            "no PostgreSQL user name specified in startup packet"
+        );
+    }
+
+    #[test]
+    fn test_startup_message_parse_error_empty_username() {
+        let data = &b"\x00\x03\x00\x00user\0\0database\0testdb\0\0"[..];
+        let err = StartupLikeMessage::parse_body(data).unwrap_err();
+
+        assert_eq!(
+            err.to_string(),
+            "no PostgreSQL user name specified in startup packet"
+        );
+    }
+
+    #[test]
     fn test_ssl_request_parsing() {
         // 0x04D2 = 1234, 0x162F = 5679
         let data = &b"\x04\xD2\x16\x2F"[..];
         let msg = StartupLikeMessage::parse_body(data).unwrap();
 
         assert_eq!(msg, SSLRequest.into());
+    }
+
+    #[test]
+    fn test_ssl_request_parse_error_extra_bytes() {
+        // 0x04D2 = 1234, 0x162F = 5679
+        let data = &b"\x04\xD2\x16\x2Ffoo"[..];
+        let err = StartupLikeMessage::parse_body(data).unwrap_err();
+
+        assert_eq!(
+            err.to_string(),
+            "invalid SSL/TLS request packet layout: expected empty body"
+        );
     }
 
     #[test]
@@ -291,7 +548,19 @@ mod tests {
     }
 
     #[test]
-    fn test_cancel_request_parsing() {
+    fn test_gssenc_request_parse_error_extra_bytes() {
+        // 0x04D2 = 1234, 0x1630 = 5680
+        let data = &b"\x04\xD2\x16\x30foo"[..];
+        let err = StartupLikeMessage::parse_body(data).unwrap_err();
+
+        assert_eq!(
+            err.to_string(),
+            "invalid GSSENC request packet layout: expected empty body"
+        );
+    }
+
+    #[test]
+    fn test_cancel_request_parsing_simple() {
         // 0x04D2 = 1234, 0x162E = 5678
         let data = &b"\x04\xD2\x16\x2E\x00\x00\x30\x39secretkeydata"[..];
         let msg = StartupLikeMessage::parse_body(data).unwrap();
@@ -303,6 +572,73 @@ mod tests {
                 secret_key: b"secretkeydata".to_vec(),
             }
             .into()
+        );
+    }
+
+    #[test]
+    fn test_cancel_request_parsing_min_length() {
+        // 0x04D2 = 1234, 0x162E = 5678
+        let data = &b"\x04\xD2\x16\x2E\x00\x00\x30\x39x"[..];
+        let msg = StartupLikeMessage::parse_body(data).unwrap();
+
+        assert_eq!(
+            msg,
+            CancelRequest {
+                process_id: 12345,
+                secret_key: b"x".to_vec(),
+            }
+            .into()
+        );
+    }
+
+    #[test]
+    fn test_cancel_request_parsing_max_length() {
+        // 0x04D2 = 1234, 0x162E = 5678
+        let mut data = b"\x04\xD2\x16\x2E\x00\x00\x30\x39".to_vec();
+        data.extend(b"a".repeat(256));
+        let msg = StartupLikeMessage::parse_body(&data).unwrap();
+
+        assert_eq!(
+            msg,
+            CancelRequest {
+                process_id: 12345,
+                secret_key: b"a".repeat(256),
+            }
+            .into()
+        );
+    }
+
+    #[test]
+    fn test_cancel_request_parse_error_incomplete_process_id() {
+        // 0x04D2 = 1234, 0x162E = 5678
+        let data = &b"\x04\xD2\x16\x2E\x00\x00\x30"[..];
+        let err = StartupLikeMessage::parse_body(data).unwrap_err();
+
+        assert_eq!(err.to_string(), "invalid length of cancel request packet");
+    }
+
+    #[test]
+    fn test_cancel_request_parse_error_missing_secret_key() {
+        // 0x04D2 = 1234, 0x162E = 5678
+        let data = &b"\x04\xD2\x16\x2E\x00\x00\x30\x39"[..];
+        let err = StartupLikeMessage::parse_body(data).unwrap_err();
+
+        assert_eq!(
+            err.to_string(),
+            "invalid length of cancel key in cancel request packet"
+        );
+    }
+
+    #[test]
+    fn test_cancel_request_parse_error_secret_key_too_long() {
+        // 0x04D2 = 1234, 0x162E = 5678
+        let mut data = b"\x04\xD2\x16\x2E\x00\x00\x30\x39".to_vec();
+        data.extend(b"a".repeat(257));
+        let err = StartupLikeMessage::parse_body(&data).unwrap_err();
+
+        assert_eq!(
+            err.to_string(),
+            "invalid length of cancel key in cancel request packet",
         );
     }
 }
