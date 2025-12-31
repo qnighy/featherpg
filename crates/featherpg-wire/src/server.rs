@@ -3,10 +3,13 @@ use std::io::{Read, Result as IoResult, Write};
 use crate::{
     ProtocolVersion,
     common::{BytesReader, WithExcess},
+    errors::DiagnosticMessage,
     io_util::BufStream,
     message::{StartupParameter, WireMessage, WireState},
     message_common::WriteWireExt,
 };
+
+pub trait Serve {}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct CancelRequest {
@@ -88,9 +91,11 @@ where
                 negotiate_protocol(&mut stream, &mut version, &mut parameters)?;
                 return Ok(NegotiatedEncryption::Cleartext(ConnectionKind::Startup(
                     Authentication {
-                        stream,
-                        version,
-                        parameters,
+                        session: InternalSession {
+                            stream,
+                            version,
+                            parameters,
+                        },
                     },
                 )));
             }
@@ -163,11 +168,106 @@ where
 }
 
 #[derive(Debug)]
-pub struct Authentication<S> {
-    stream: BufStream<S>,
+pub(crate) struct InternalSession<S> {
+    pub(crate) stream: BufStream<S>,
     // TODO: expose version and parameters
-    version: ProtocolVersion,
-    parameters: Vec<StartupParameter>,
+    pub(crate) version: ProtocolVersion,
+    pub(crate) parameters: Vec<StartupParameter>,
 }
 
-impl<S> Authentication<S> where S: Read + Write {}
+#[derive(Debug)]
+pub struct Authentication<S> {
+    session: InternalSession<S>,
+}
+
+impl<S> Authentication<S>
+where
+    S: Read + Write,
+{
+    pub fn authentication_ok(mut self) -> IoResult<BackendStartup<S>> {
+        let msg = WireMessage::AuthenticationOk;
+        msg.write_to(&mut self.session.stream)?;
+        Ok(BackendStartup {
+            session: self.session,
+        })
+    }
+
+    // TODO: other authentication methods
+}
+
+#[derive(Debug)]
+pub struct BackendStartup<S> {
+    session: InternalSession<S>,
+}
+
+impl<S> BackendStartup<S>
+where
+    S: Read + Write,
+{
+    pub fn send_backend_key(&mut self, process_id: i32, secret_key: &[u8]) -> IoResult<()> {
+        let msg = WireMessage::BackendKeyData {
+            process_id,
+            secret_key: secret_key.to_owned(),
+        };
+        msg.write_to(&mut self.session.stream)?;
+
+        Ok(())
+    }
+
+    pub fn send_parameter_status(&mut self, name: &str, value: &str) -> IoResult<()> {
+        let msg = WireMessage::ParameterStatus {
+            parameter: name.to_owned(),
+            value: value.to_owned(),
+        };
+        msg.write_to(&mut self.session.stream)?;
+
+        Ok(())
+    }
+
+    pub fn send_notice(&mut self, notice: DiagnosticMessage) -> IoResult<()> {
+        let msg = WireMessage::NoticeResponse { notice };
+        msg.write_to(&mut self.session.stream)?;
+
+        Ok(())
+    }
+
+    pub fn send_error(mut self, error: DiagnosticMessage) -> IoResult<()> {
+        let msg = WireMessage::ErrorResponse { error };
+        msg.write_to(&mut self.session.stream)?;
+        self.session.stream.flush()?;
+
+        Ok(())
+    }
+
+    pub fn ready(mut self) -> IoResult<Ready<S>> {
+        let msg = WireMessage::ReadyForQuery {
+            transaction_status: crate::message::TransactionStatus::Idle,
+        };
+        msg.write_to(&mut self.session.stream)?;
+        self.session.stream.flush()?;
+
+        Ok(Ready {
+            session: self.session,
+        })
+    }
+}
+
+#[derive(Debug)]
+pub struct Ready<S> {
+    session: InternalSession<S>,
+}
+
+impl<S> Ready<S>
+where
+    S: Read + Write,
+{
+    pub fn serve<Sv>(mut self, server: &mut Sv) -> IoResult<()>
+    where
+        Sv: Serve + ?Sized,
+    {
+        let msg = WireMessage::read_from(&mut self.session.stream, WireState::Ordinary)?;
+        match msg {
+            _ => unimplemented!("serve not implemented for {:?}", msg),
+        }
+    }
+}
