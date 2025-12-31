@@ -285,95 +285,95 @@ impl WireMessage {
             }
             WireMessage::SSLRequest => {
                 writer.write_usize32(size)?;
-                writer.write_version(VERSION_SSL_REQUEST);
+                writer.write_version(VERSION_SSL_REQUEST)?;
             }
             WireMessage::GSSENCRequest => {
                 writer.write_usize32(size)?;
-                writer.write_version(VERSION_GSSENC_REQUEST);
+                writer.write_version(VERSION_GSSENC_REQUEST)?;
             }
             WireMessage::CancelRequest {
                 process_id,
                 secret_key,
             } => {
                 writer.write_usize32(size)?;
-                writer.write_version(VERSION_CANCEL_REQUEST);
-                writer.write_u32(*process_id as u32);
-                writer.write_bytes(secret_key);
+                writer.write_version(VERSION_CANCEL_REQUEST)?;
+                writer.write_u32(*process_id as u32)?;
+                writer.write_bytes(secret_key)?;
             }
 
             // Startup responses
             WireMessage::AuthenticationOk => {
-                writer.write_u8(TYPE_BYTE_AUTHENTICATION);
+                writer.write_u8(TYPE_BYTE_AUTHENTICATION)?;
                 writer.write_usize32(size - 1)?;
-                writer.write_u32(AUTH_TYPE_OK);
+                writer.write_u32(AUTH_TYPE_OK)?;
             }
             WireMessage::AuthenticationCleartextPassword => {
-                writer.write_u8(TYPE_BYTE_AUTHENTICATION);
+                writer.write_u8(TYPE_BYTE_AUTHENTICATION)?;
                 writer.write_usize32(size - 1)?;
-                writer.write_u32(AUTH_TYPE_CLEARTEXT_PASSWORD);
+                writer.write_u32(AUTH_TYPE_CLEARTEXT_PASSWORD)?;
             }
             WireMessage::AuthenticationMD5Password { salt } => {
-                writer.write_u8(TYPE_BYTE_AUTHENTICATION);
+                writer.write_u8(TYPE_BYTE_AUTHENTICATION)?;
                 writer.write_usize32(size - 1)?;
-                writer.write_u32(AUTH_TYPE_MD5_PASSWORD);
-                writer.write_bytes(salt);
+                writer.write_u32(AUTH_TYPE_MD5_PASSWORD)?;
+                writer.write_bytes(salt)?;
             }
             WireMessage::AuthenticationKerberosV5 => {
-                writer.write_u8(TYPE_BYTE_AUTHENTICATION);
+                writer.write_u8(TYPE_BYTE_AUTHENTICATION)?;
                 writer.write_usize32(size - 1)?;
-                writer.write_u32(AUTH_TYPE_KERBEROS_V5);
+                writer.write_u32(AUTH_TYPE_KERBEROS_V5)?;
             }
             WireMessage::AuthenticationGSS => {
-                writer.write_u8(TYPE_BYTE_AUTHENTICATION);
+                writer.write_u8(TYPE_BYTE_AUTHENTICATION)?;
                 writer.write_usize32(size - 1)?;
-                writer.write_u32(AUTH_TYPE_GSS);
+                writer.write_u32(AUTH_TYPE_GSS)?;
             }
             WireMessage::AuthenticationSSPI => {
-                writer.write_u8(TYPE_BYTE_AUTHENTICATION);
+                writer.write_u8(TYPE_BYTE_AUTHENTICATION)?;
                 writer.write_usize32(size - 1)?;
-                writer.write_u32(AUTH_TYPE_SSPI);
+                writer.write_u32(AUTH_TYPE_SSPI)?;
             }
             WireMessage::AuthenticationSASL { mechanisms } => {
-                writer.write_u8(TYPE_BYTE_AUTHENTICATION);
+                writer.write_u8(TYPE_BYTE_AUTHENTICATION)?;
                 writer.write_usize32(size - 1)?;
-                writer.write_u32(AUTH_TYPE_SASL);
+                writer.write_u32(AUTH_TYPE_SASL)?;
                 for mechanism in mechanisms {
                     assert!(!mechanism.is_empty(), "SASL mechanism cannot be empty");
-                    writer.write_cstring(mechanism);
+                    writer.write_cstring(mechanism)?;
                 }
-                writer.write_cstring("");
+                writer.write_cstring("")?;
             }
             WireMessage::NegotiateProtocolVersion {
                 version,
                 unrecognized_options,
             } => {
-                writer.write_u8(TYPE_BYTE_NEGOTIATE_PROTOCOL_VERSION);
+                writer.write_u8(TYPE_BYTE_NEGOTIATE_PROTOCOL_VERSION)?;
                 writer.write_usize32(size - 1)?;
-                writer.write_version(*version);
-                writer.write_u32(u32::try_from(unrecognized_options.len()).unwrap());
+                writer.write_version(*version)?;
+                writer.write_u32(u32::try_from(unrecognized_options.len()).unwrap())?;
                 for option in unrecognized_options {
-                    writer.write_cstring(option);
+                    writer.write_cstring(option)?;
                 }
             }
 
             // Continuation of authentication
             WireMessage::AuthenticationGSSContinue { data } => {
-                writer.write_u8(TYPE_BYTE_AUTHENTICATION);
+                writer.write_u8(TYPE_BYTE_AUTHENTICATION)?;
                 writer.write_usize32(size - 1)?;
-                writer.write_u32(AUTH_TYPE_GSS_CONTINUE);
-                writer.write_bytes(data);
+                writer.write_u32(AUTH_TYPE_GSS_CONTINUE)?;
+                writer.write_bytes(data)?;
             }
             WireMessage::AuthenticationSASLContinue { data } => {
-                writer.write_u8(TYPE_BYTE_AUTHENTICATION);
+                writer.write_u8(TYPE_BYTE_AUTHENTICATION)?;
                 writer.write_usize32(size - 1)?;
-                writer.write_u32(AUTH_TYPE_SASL_CONTINUE);
-                writer.write_bytes(data);
+                writer.write_u32(AUTH_TYPE_SASL_CONTINUE)?;
+                writer.write_bytes(data)?;
             }
             WireMessage::AuthenticationSASLFinal { data } => {
-                writer.write_u8(TYPE_BYTE_AUTHENTICATION);
+                writer.write_u8(TYPE_BYTE_AUTHENTICATION)?;
                 writer.write_usize32(size - 1)?;
-                writer.write_u32(AUTH_TYPE_SASL_FINAL);
-                writer.write_bytes(data);
+                writer.write_u32(AUTH_TYPE_SASL_FINAL)?;
+                writer.write_bytes(data)?;
             }
 
             _ => unimplemented!("write_body_to not implemented for {:?}", self),
