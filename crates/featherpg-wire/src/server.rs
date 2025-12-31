@@ -1,4 +1,6 @@
-use std::io::{Read, Result as IoResult, Write};
+use std::io::{
+    BufRead, Error as IoError, ErrorKind as IoErrorKind, Read, Result as IoResult, Write,
+};
 
 use crate::{
     ProtocolVersion,
@@ -8,6 +10,8 @@ use crate::{
     message::{StartupParameter, WireMessage, WireState},
     message_common::WriteWireExt,
 };
+
+const TLS_HANDSHAKE_SIGNATURE: u8 = 0x16;
 
 pub trait Serve {}
 
@@ -51,6 +55,23 @@ where
     S: Read + Write,
 {
     let mut stream = BufStream::new(stream);
+
+    // Check for direct SSL/TLS handshake attempt (>= PostgreSQL 17)
+    if stream.fill_buf()?.get(0) == Some(&TLS_HANDSHAKE_SIGNATURE) {
+        if capabilities.ssl {
+            // No write so far, so we don't need to flush
+            let (stream, read_buf, _) = stream.into_parts();
+            return Ok(NegotiatedEncryption::UseSSL(WithExcess {
+                stream,
+                excess_read: BytesReader::from(Vec::from(read_buf)),
+            }));
+        } else {
+            return Err(IoError::new(
+                IoErrorKind::Other,
+                "SSL/TLS connection attempted but not supported by server",
+            ));
+        }
+    }
 
     let mut msg = WireMessage::read_from(&mut stream, WireState::BackendStartup)?;
 
