@@ -167,6 +167,18 @@ pub(super) enum WireFormatError {
     InvalidReplicationParameter { value: String },
     #[error("no PostgreSQL user name specified in startup packet")]
     MissingUserName,
+    // Not found in PostgreSQL
+    #[error("invalid SSL/TLS request packet layout: expected empty body")]
+    SSLRequestExtraBytes,
+    // Not found in PostgreSQL
+    #[error("invalid GSSENC request packet layout: expected empty body")]
+    GSSENCRequestExtraBytes,
+    #[error("invalid length of cancel request packet")]
+    CancelRequestIncompleteProcessId,
+    #[error("invalid length of cancel key in cancel request packet")]
+    CancelRequestMissingSecretKey,
+    #[error("invalid length of cancel key in cancel request packet")]
+    CancelRequestSecretKeyTooLong { length: usize, max_length: usize },
 
     #[error("unknown type byte: {type_byte:02X}")]
     UnknownTypeByte { type_byte: u8 },
