@@ -11,6 +11,8 @@ use crate::{
     message_common::{LengthCounter, ProtocolVersion, Scanner, WireFormatError, WriteWireExt},
 };
 
+mod startup;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) enum WireState {
     /// Ordinary message exchange state

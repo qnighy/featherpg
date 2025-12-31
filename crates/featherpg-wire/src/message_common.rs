@@ -1,4 +1,5 @@
 use std::{
+    ffi::{CStr, CString},
     io::{self, Result as IoResult, Write},
     str::Utf8Error,
 };
@@ -122,6 +123,15 @@ impl<'a> Scanner<'a> {
         Ok(s)
     }
 
+    pub(super) fn read_cstring2(
+        &mut self,
+        on_runaway: WireFormatError,
+    ) -> Result<CString, WireFormatError> {
+        let s = CStr::from_bytes_until_nul(&self.data[self.position..]).map_err(|_| on_runaway)?;
+        self.position += s.to_bytes_with_nul().len();
+        Ok(s.to_owned())
+    }
+
     pub(super) fn read_u32(&mut self) -> Result<u32, WireFormatError> {
         let bytes = self.read_bytes(4)?;
         let value = u32::from_be_bytes(bytes.try_into().unwrap());
@@ -148,6 +158,16 @@ impl<'a> Scanner<'a> {
 
 #[derive(Debug, Error)]
 pub(super) enum WireFormatError {
+    // Found in backend_startup.c, ProcessStartupPacket
+    #[error("invalid startup packet layout: expected terminator as last byte")]
+    StartupPacketExtraBytes,
+    #[error("invalid startup packet layout: expected terminator as last byte")]
+    StartupPacketUnterminatedString,
+    #[error("invalid value for parameter \"replication\": \"{value}\"")]
+    InvalidReplicationParameter { value: String },
+    #[error("no PostgreSQL user name specified in startup packet")]
+    MissingUserName,
+
     #[error("unknown type byte: {type_byte:02X}")]
     UnknownTypeByte { type_byte: u8 },
     #[error("unknown authentication type: {auth_type}")]
