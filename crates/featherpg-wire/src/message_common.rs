@@ -1,5 +1,5 @@
 use std::{
-    io::{self, Write},
+    io::{self, Result as IoResult, Write},
     str::Utf8Error,
 };
 
@@ -21,6 +21,65 @@ impl ProtocolVersion {
         Self { major, minor }
     }
 }
+
+/// A `Write` implementation that just counts the number of bytes written.
+#[derive(Debug)]
+pub(crate) struct LengthCounter {
+    len: usize,
+}
+
+impl LengthCounter {
+    pub(crate) fn new() -> Self {
+        Self { len: 0 }
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.len
+    }
+}
+
+impl Write for LengthCounter {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        let n = buf.len();
+        self.len += n;
+        Ok(n)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+pub(crate) trait WriteWireExt: Write {
+    fn write_bytes(&mut self, bytes: &[u8]) -> IoResult<()> {
+        self.write_all(bytes)
+    }
+    fn write_u8(&mut self, value: u8) -> IoResult<()> {
+        self.write_all(&[value])
+    }
+    fn write_u16(&mut self, value: u16) -> IoResult<()> {
+        self.write_all(&value.to_be_bytes())
+    }
+    fn write_u32(&mut self, value: u32) -> IoResult<()> {
+        self.write_all(&value.to_be_bytes())
+    }
+    fn write_usize32(&mut self, value: usize) -> IoResult<()> {
+        self.write_u32(u32::try_from(value).unwrap())
+    }
+    fn write_version(&mut self, version: ProtocolVersion) -> IoResult<()> {
+        self.write_u16(version.major)?;
+        self.write_u16(version.minor)?;
+
+        Ok(())
+    }
+    fn write_cstring(&mut self, s: &str) -> IoResult<()> {
+        assert!(!s.contains('\0'), "CString cannot contain null bytes");
+        self.write_all(s.as_bytes())?;
+        self.write_u8(0)
+    }
+}
+
+impl<T: Write + ?Sized> WriteWireExt for T {}
 
 pub(crate) struct LengthReservation {
     position: usize,

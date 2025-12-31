@@ -1,9 +1,10 @@
-use std::io::Result as IoResult;
+use std::io::{Read, Result as IoResult};
 
 use crate::{
     common::WithExcess,
     errors::ServerError,
-    io_util::{GrowableBuffer, WriteBuffer},
+    io_util::{BufStream, GrowableBuffer, WriteBuffer},
+    message::{WireMessage, WireState},
 };
 
 /// Defines an interface that a PostgreSQL wire protocol server must implement
@@ -103,11 +104,15 @@ pub enum NegotiatedEncryption<S> {
 }
 
 pub fn negotiate_encryption<S>(
-    mut stream: S,
+    stream: S,
     capabilities: &EncryptionCapabilities,
-) -> IoResult<NegotiatedEncryption<S>> {
-    let mut read_buf = GrowableBuffer::new();
-    let mut write_buf = WriteBuffer::new();
+) -> IoResult<NegotiatedEncryption<S>>
+where
+    S: Read,
+{
+    let mut stream = BufStream::new(stream);
+
+    let msg = WireMessage::read_from(&mut stream, WireState::BackendStartup)?;
 
     todo!();
 }

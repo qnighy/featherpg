@@ -266,6 +266,10 @@ impl<S: ?Sized> BufStream<S> {
     {
         (self.stream, self.read_buf, self.write_buf)
     }
+
+    pub(crate) fn read_buffer(&self) -> &[u8] {
+        self.read_buf.buffer()
+    }
 }
 
 impl<S> Read for BufStream<S>

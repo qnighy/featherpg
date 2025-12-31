@@ -1,11 +1,16 @@
 // https://www.postgresql.org/docs/current/protocol.html
 // https://www.postgresql.org/docs/current/protocol-message-formats.html
 
+use std::io::{
+    BufRead, Error as IoError, ErrorKind as IoErrorKind, Read, Result as IoResult, Write,
+};
+
 use crate::{
     errors::DiagnosticMessage,
-    io_util::ByteQueue,
+    io_util::BufStream,
     message_common::{
-        ByteQueueWriteExt, LengthReservation, ProtocolVersion, Scanner, WireFormatError,
+        ByteQueueWriteExt, LengthCounter, LengthReservation, ProtocolVersion, Scanner,
+        WireFormatError, WriteWireExt,
     },
 };
 
@@ -248,35 +253,49 @@ const AUTH_TYPE_SASL_CONTINUE: u32 = 11;
 const AUTH_TYPE_SASL_FINAL: u32 = 12;
 
 impl WireMessage {
-    pub(crate) fn write_to(&self, writer: &mut ByteQueue) {
-        let res: LengthReservation;
+    pub(crate) fn write_to<W>(&self, writer: &mut W) -> IoResult<()>
+    where
+        W: Write + ?Sized,
+    {
+        let mut counter = LengthCounter::new();
+        // Using 1 to avoid subtract overflow
+        self.write_to_with_size(1, &mut counter)?;
+        self.write_to_with_size(counter.len(), writer)?;
+
+        Ok(())
+    }
+
+    fn write_to_with_size<W>(&self, size: usize, writer: &mut W) -> IoResult<()>
+    where
+        W: Write + ?Sized,
+    {
         match self {
             // Startup messages
             WireMessage::StartupMessage {
                 version,
                 parameters,
             } => {
-                res = writer.write_length_placeholder();
-                writer.write_version(*version);
+                writer.write_usize32(size)?;
+                writer.write_version(*version)?;
                 for param in parameters {
-                    writer.write_cstring(&param.name);
-                    writer.write_cstring(&param.value);
+                    writer.write_cstring(&param.name)?;
+                    writer.write_cstring(&param.value)?;
                 }
-                writer.write_cstring("");
+                writer.write_cstring("")?;
             }
             WireMessage::SSLRequest => {
-                res = writer.write_length_placeholder();
+                writer.write_usize32(size)?;
                 writer.write_version(VERSION_SSL_REQUEST);
             }
             WireMessage::GSSENCRequest => {
-                res = writer.write_length_placeholder();
+                writer.write_usize32(size)?;
                 writer.write_version(VERSION_GSSENC_REQUEST);
             }
             WireMessage::CancelRequest {
                 process_id,
                 secret_key,
             } => {
-                res = writer.write_length_placeholder();
+                writer.write_usize32(size)?;
                 writer.write_version(VERSION_CANCEL_REQUEST);
                 writer.write_u32(*process_id as u32);
                 writer.write_bytes(secret_key);
@@ -285,38 +304,38 @@ impl WireMessage {
             // Startup responses
             WireMessage::AuthenticationOk => {
                 writer.write_u8(TYPE_BYTE_AUTHENTICATION);
-                res = writer.write_length_placeholder();
+                writer.write_usize32(size - 1)?;
                 writer.write_u32(AUTH_TYPE_OK);
             }
             WireMessage::AuthenticationCleartextPassword => {
                 writer.write_u8(TYPE_BYTE_AUTHENTICATION);
-                res = writer.write_length_placeholder();
+                writer.write_usize32(size - 1)?;
                 writer.write_u32(AUTH_TYPE_CLEARTEXT_PASSWORD);
             }
             WireMessage::AuthenticationMD5Password { salt } => {
                 writer.write_u8(TYPE_BYTE_AUTHENTICATION);
-                res = writer.write_length_placeholder();
+                writer.write_usize32(size - 1)?;
                 writer.write_u32(AUTH_TYPE_MD5_PASSWORD);
                 writer.write_bytes(salt);
             }
             WireMessage::AuthenticationKerberosV5 => {
                 writer.write_u8(TYPE_BYTE_AUTHENTICATION);
-                res = writer.write_length_placeholder();
+                writer.write_usize32(size - 1)?;
                 writer.write_u32(AUTH_TYPE_KERBEROS_V5);
             }
             WireMessage::AuthenticationGSS => {
                 writer.write_u8(TYPE_BYTE_AUTHENTICATION);
-                res = writer.write_length_placeholder();
+                writer.write_usize32(size - 1)?;
                 writer.write_u32(AUTH_TYPE_GSS);
             }
             WireMessage::AuthenticationSSPI => {
                 writer.write_u8(TYPE_BYTE_AUTHENTICATION);
-                res = writer.write_length_placeholder();
+                writer.write_usize32(size - 1)?;
                 writer.write_u32(AUTH_TYPE_SSPI);
             }
             WireMessage::AuthenticationSASL { mechanisms } => {
                 writer.write_u8(TYPE_BYTE_AUTHENTICATION);
-                res = writer.write_length_placeholder();
+                writer.write_usize32(size - 1)?;
                 writer.write_u32(AUTH_TYPE_SASL);
                 for mechanism in mechanisms {
                     assert!(!mechanism.is_empty(), "SASL mechanism cannot be empty");
@@ -329,7 +348,7 @@ impl WireMessage {
                 unrecognized_options,
             } => {
                 writer.write_u8(TYPE_BYTE_NEGOTIATE_PROTOCOL_VERSION);
-                res = writer.write_length_placeholder();
+                writer.write_usize32(size - 1)?;
                 writer.write_version(*version);
                 writer.write_u32(u32::try_from(unrecognized_options.len()).unwrap());
                 for option in unrecognized_options {
@@ -340,19 +359,19 @@ impl WireMessage {
             // Continuation of authentication
             WireMessage::AuthenticationGSSContinue { data } => {
                 writer.write_u8(TYPE_BYTE_AUTHENTICATION);
-                res = writer.write_length_placeholder();
+                writer.write_usize32(size - 1)?;
                 writer.write_u32(AUTH_TYPE_GSS_CONTINUE);
                 writer.write_bytes(data);
             }
             WireMessage::AuthenticationSASLContinue { data } => {
                 writer.write_u8(TYPE_BYTE_AUTHENTICATION);
-                res = writer.write_length_placeholder();
+                writer.write_usize32(size - 1)?;
                 writer.write_u32(AUTH_TYPE_SASL_CONTINUE);
                 writer.write_bytes(data);
             }
             WireMessage::AuthenticationSASLFinal { data } => {
                 writer.write_u8(TYPE_BYTE_AUTHENTICATION);
-                res = writer.write_length_placeholder();
+                writer.write_usize32(size - 1)?;
                 writer.write_u32(AUTH_TYPE_SASL_FINAL);
                 writer.write_bytes(data);
             }
@@ -360,26 +379,36 @@ impl WireMessage {
             _ => unimplemented!("write_body_to not implemented for {:?}", self),
         }
 
-        writer.write_length_back(res);
+        Ok(())
     }
 
-    fn parse(buf: &[u8], state: WireState) -> Result<Self, WireFormatError> {
-        let mut queue = ByteQueue::from(buf);
-        let Some(msg) = Self::read_from(&mut queue, state)? else {
-            return Err(WireFormatError::UnexpectedEof);
-        };
-        if queue.len() > 0 {
-            return Err(WireFormatError::ExtraBytes);
+    pub(crate) fn read_from<R>(reader: &mut BufStream<R>, state: WireState) -> IoResult<Self>
+    where
+        R: Read + ?Sized,
+    {
+        let buf = reader.read_buffer();
+        if let Some((msg, num_read)) = Self::try_read_from(buf, state)
+            .map_err(|e| IoError::new(IoErrorKind::InvalidData, e))?
+        {
+            reader.consume(num_read);
+            return Ok(msg);
         }
-        Ok(msg)
+
+        loop {
+            let buf = reader.fill_buf()?;
+            if let Some((msg, num_read)) = Self::try_read_from(buf, state)
+                .map_err(|e| IoError::new(IoErrorKind::InvalidData, e))?
+            {
+                reader.consume(num_read);
+                return Ok(msg);
+            }
+        }
     }
 
-    /// Parses a server wire message at the start of `buf`.
-    /// Returns None if there is not enough data to parse a complete message.
-    pub(crate) fn read_from(
-        buf: &mut ByteQueue,
+    pub(crate) fn try_read_from(
+        buf: &[u8],
         state: WireState,
-    ) -> Result<Option<Self>, WireFormatError> {
+    ) -> Result<Option<(Self, usize)>, WireFormatError> {
         let offset = match state {
             WireState::Ordinary => 1,
             WireState::BackendStartup => 0,
@@ -401,8 +430,7 @@ impl WireMessage {
         }
         let body = &bufoff[4..length];
         let msg = Self::parse_body(type_byte, body, state)?;
-        buf.consume(offset + length);
-        Ok(Some(msg))
+        Ok(Some((msg, offset + length)))
     }
 
     fn parse_body(type_byte: u8, body: &[u8], state: WireState) -> Result<Self, WireFormatError> {
@@ -556,13 +584,18 @@ mod tests {
     use super::*;
 
     fn write_msg(msg: &WireMessage) -> Vec<u8> {
-        let mut buf = ByteQueue::new();
-        msg.write_to(&mut buf);
-        Vec::from(&*buf)
+        let mut buf = Vec::new();
+        msg.write_to(&mut buf).unwrap();
+        buf
     }
 
     fn parse_msg(buf: &[u8], state: WireState) -> WireMessage {
-        WireMessage::parse(buf, state).unwrap()
+        let mut reader = BufStream::new(buf);
+        let msg = WireMessage::read_from(&mut reader, state).unwrap();
+        if !reader.fill_buf().unwrap().is_empty() {
+            panic!("Buffer not fully consumed after parsing message");
+        }
+        msg
     }
 
     #[test]
