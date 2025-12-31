@@ -21,6 +21,17 @@ impl ProtocolVersion {
     }
 }
 
+/// An abstraction over future's and tokio's AsyncWrite.
+pub(crate) trait CommonAsyncWrite {
+    fn poll_write(
+        &mut self,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<IoResult<usize>>;
+
+    fn poll_flush(&mut self, cx: &mut std::task::Context<'_>) -> std::task::Poll<IoResult<()>>;
+}
+
 /// A `Write` implementation that just counts the number of bytes written.
 #[derive(Debug)]
 pub(crate) struct LengthCounter {
@@ -46,6 +57,22 @@ impl Write for LengthCounter {
 
     fn flush(&mut self) -> io::Result<()> {
         Ok(())
+    }
+}
+
+impl CommonAsyncWrite for LengthCounter {
+    fn poll_write(
+        &mut self,
+        _cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<IoResult<usize>> {
+        let n = buf.len();
+        self.len += n;
+        std::task::Poll::Ready(Ok(n))
+    }
+
+    fn poll_flush(&mut self, _cx: &mut std::task::Context<'_>) -> std::task::Poll<IoResult<()>> {
+        std::task::Poll::Ready(Ok(()))
     }
 }
 
@@ -76,9 +103,50 @@ pub(crate) trait WriteWireExt: Write {
         self.write_all(s.as_bytes())?;
         self.write_u8(0)
     }
+    fn write_cstring2(&mut self, s: &CStr) -> IoResult<()> {
+        self.write_all(s.to_bytes_with_nul())
+    }
 }
 
 impl<T: Write + ?Sized> WriteWireExt for T {}
+
+pub(crate) trait AsyncWriteWireExt: CommonAsyncWrite {
+    async fn write_bytes_async(&mut self, bytes: &[u8]) -> IoResult<()> {
+        let mut pos = 0;
+        while pos < bytes.len() {
+            let num_read = std::future::poll_fn(|cx| self.poll_write(cx, &bytes[pos..])).await?;
+            pos += num_read;
+        }
+        Ok(())
+    }
+    async fn write_u8_async(&mut self, value: u8) -> IoResult<()> {
+        self.write_bytes_async(&[value]).await
+    }
+    async fn write_u16_async(&mut self, value: u16) -> IoResult<()> {
+        self.write_bytes_async(&value.to_be_bytes()).await
+    }
+    async fn write_u32_async(&mut self, value: u32) -> IoResult<()> {
+        self.write_bytes_async(&value.to_be_bytes()).await
+    }
+    async fn write_usize32_async(&mut self, value: usize) -> IoResult<()> {
+        self.write_u32_async(u32::try_from(value).unwrap()).await
+    }
+    async fn write_version_async(&mut self, version: ProtocolVersion) -> IoResult<()> {
+        self.write_u16_async(version.major).await?;
+        self.write_u16_async(version.minor).await?;
+        Ok(())
+    }
+    async fn write_cstring_async(&mut self, s: &str) -> IoResult<()> {
+        assert!(!s.contains('\0'), "CString cannot contain null bytes");
+        self.write_bytes_async(s.as_bytes()).await?;
+        self.write_u8_async(0).await
+    }
+    async fn write_cstring2_async(&mut self, s: &CStr) -> IoResult<()> {
+        self.write_bytes_async(s.to_bytes_with_nul()).await
+    }
+}
+
+impl<T: CommonAsyncWrite + ?Sized> AsyncWriteWireExt for T {}
 
 pub(super) struct Scanner<'a> {
     data: &'a [u8],

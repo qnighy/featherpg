@@ -1,8 +1,11 @@
-use std::ffi::CString;
+use std::{
+    ffi::{CStr, CString},
+    io::{Error as IoError, ErrorKind as IoErrorKind, Result as IoResult, Write},
+};
 
 use crate::{
     ProtocolVersion,
-    message_common::{Scanner, WireFormatError},
+    message_common::{AsyncWriteWireExt, CommonAsyncWrite, Scanner, WireFormatError, WriteWireExt},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -38,6 +41,30 @@ impl From<CancelRequest> for StartupLikeMessage {
 }
 
 impl StartupLikeMessage {
+    pub fn write_body_to<W>(&self, writer: &mut W) -> IoResult<()>
+    where
+        W: Write + ?Sized,
+    {
+        match self {
+            StartupLikeMessage::Startup(msg) => msg.write_body_to(writer),
+            StartupLikeMessage::SSLRequest(msg) => msg.write_body_to(writer),
+            StartupLikeMessage::GSSENCRequest(msg) => msg.write_body_to(writer),
+            StartupLikeMessage::CancelRequest(msg) => msg.write_body_to(writer),
+        }
+    }
+
+    pub(crate) async fn write_body_to_async<W>(&self, writer: &mut W) -> IoResult<()>
+    where
+        W: CommonAsyncWrite + ?Sized,
+    {
+        match self {
+            StartupLikeMessage::Startup(msg) => msg.write_body_to_async(writer).await,
+            StartupLikeMessage::SSLRequest(msg) => msg.write_body_to_async(writer).await,
+            StartupLikeMessage::GSSENCRequest(msg) => msg.write_body_to_async(writer).await,
+            StartupLikeMessage::CancelRequest(msg) => msg.write_body_to_async(writer).await,
+        }
+    }
+
     pub fn parse_body(body: &[u8]) -> Result<Self, WireFormatError> {
         let mut scanner = Scanner::new(body);
         let version = scanner.read_version()?;
@@ -68,6 +95,168 @@ pub struct StartupMessage {
 }
 
 impl StartupMessage {
+    fn write_body_to<W>(&self, writer: &mut W) -> IoResult<()>
+    where
+        W: Write + ?Sized,
+    {
+        // fe-protocol3.c, build_startup_packet
+
+        writer.write_version(self.version)?;
+        writer.write_bytes(b"user\0")?;
+        writer.write_cstring2(self.user_name.as_c_str())?;
+        writer.write_bytes(b"database\0")?;
+        writer.write_cstring2(self.database_name.as_c_str())?;
+        if let Some(options) = &self.cmdline_options {
+            writer.write_bytes(b"options\0")?;
+            writer.write_cstring2(options)?;
+        }
+        self.write_replication_mode_to(writer)?;
+        self.write_protocol_options_to(writer)?;
+        self.write_guc_options_to(writer)?;
+        writer.write_u8(0)?;
+
+        Ok(())
+    }
+
+    async fn write_body_to_async<W>(&self, writer: &mut W) -> IoResult<()>
+    where
+        W: CommonAsyncWrite + ?Sized,
+    {
+        // fe-protocol3.c, build_startup_packet
+
+        writer.write_version_async(self.version).await?;
+        writer.write_bytes_async(b"user\0").await?;
+        writer
+            .write_cstring2_async(self.user_name.as_c_str())
+            .await?;
+        writer.write_bytes_async(b"database\0").await?;
+        writer
+            .write_cstring2_async(self.database_name.as_c_str())
+            .await?;
+        if let Some(options) = &self.cmdline_options {
+            writer.write_bytes_async(b"options\0").await?;
+            writer.write_cstring2_async(options).await?;
+        }
+        self.write_replication_mode_to_async(writer).await?;
+        self.write_protocol_options_to_async(writer).await?;
+        self.write_guc_options_to_async(writer).await?;
+        writer.write_u8_async(0).await?;
+
+        Ok(())
+    }
+
+    fn write_replication_mode_to<W>(&self, writer: &mut W) -> IoResult<()>
+    where
+        W: Write + ?Sized,
+    {
+        match self.replication {
+            ReplicationMode::DatabaseReplication => {
+                writer.write_bytes(b"replication\0database\0")?;
+            }
+            ReplicationMode::Replication => {
+                writer.write_bytes(b"replication\0true\0")?;
+            }
+            ReplicationMode::None => {}
+        }
+
+        Ok(())
+    }
+
+    async fn write_replication_mode_to_async<W>(&self, writer: &mut W) -> IoResult<()>
+    where
+        W: CommonAsyncWrite + ?Sized,
+    {
+        match self.replication {
+            ReplicationMode::DatabaseReplication => {
+                writer.write_bytes_async(b"replication\0database\0").await?;
+            }
+            ReplicationMode::Replication => {
+                writer.write_bytes_async(b"replication\0true\0").await?;
+            }
+            ReplicationMode::None => {}
+        }
+
+        Ok(())
+    }
+
+    fn write_protocol_options_to<W>(&self, writer: &mut W) -> IoResult<()>
+    where
+        W: Write + ?Sized,
+    {
+        for (name, value) in &self.other_protocol_options {
+            Self::validate_protocol_option(name, value)?;
+            writer.write_cstring2(name.as_c_str())?;
+            writer.write_cstring2(value.as_c_str())?;
+        }
+
+        Ok(())
+    }
+
+    async fn write_protocol_options_to_async<W>(&self, writer: &mut W) -> IoResult<()>
+    where
+        W: CommonAsyncWrite + ?Sized,
+    {
+        for (name, value) in &self.other_protocol_options {
+            Self::validate_protocol_option(name, value)?;
+            writer.write_cstring2_async(name.as_c_str()).await?;
+            writer.write_cstring2_async(value.as_c_str()).await?;
+        }
+
+        Ok(())
+    }
+
+    fn validate_protocol_option(name: &CString, _value: &CString) -> IoResult<()> {
+        if !name.as_bytes().starts_with(b"_pq_.") {
+            return Err(IoError::new(
+                IoErrorKind::InvalidInput,
+                "protocol option name must start with `_pq_.`",
+            ));
+        }
+        Ok(())
+    }
+
+    fn write_guc_options_to<W>(&self, writer: &mut W) -> IoResult<()>
+    where
+        W: Write + ?Sized,
+    {
+        for (name, value) in &self.guc_options {
+            Self::validate_guc_option(name, value)?;
+            writer.write_cstring2(name.as_c_str())?;
+            writer.write_cstring2(value.as_c_str())?;
+        }
+
+        Ok(())
+    }
+
+    async fn write_guc_options_to_async<W>(&self, writer: &mut W) -> IoResult<()>
+    where
+        W: CommonAsyncWrite + ?Sized,
+    {
+        for (name, value) in &self.guc_options {
+            Self::validate_guc_option(name, value)?;
+            writer.write_cstring2_async(name.as_c_str()).await?;
+            writer.write_cstring2_async(value.as_c_str()).await?;
+        }
+
+        Ok(())
+    }
+
+    fn validate_guc_option(name: &CString, _value: &CString) -> IoResult<()> {
+        if name.as_bytes().is_empty() {
+            return Err(IoError::new(
+                IoErrorKind::InvalidInput,
+                "GUC option name must not be empty",
+            ));
+        }
+        if name.as_bytes().starts_with(b"_pq_.") {
+            return Err(IoError::new(
+                IoErrorKind::InvalidInput,
+                "GUC option name must not start with `_pq_.`",
+            ));
+        }
+        Ok(())
+    }
+
     fn parse_with_version(
         mut scanner: Scanner<'_>,
         version: ProtocolVersion,
@@ -151,11 +340,32 @@ pub struct SSLRequest;
 
 impl SSLRequest {
     const VERSION: ProtocolVersion = ProtocolVersion::new(1234, 5679);
+
+    fn write_body_to<W>(&self, writer: &mut W) -> IoResult<()>
+    where
+        W: Write + ?Sized,
+    {
+        writer.write_version(Self::VERSION)?;
+
+        Ok(())
+    }
+
+    async fn write_body_to_async<W>(&self, writer: &mut W) -> IoResult<()>
+    where
+        W: CommonAsyncWrite + ?Sized,
+    {
+        writer.write_version_async(Self::VERSION).await?;
+
+        Ok(())
+    }
+
     fn parse_with_version(
         scanner: Scanner<'_>,
-        _version: ProtocolVersion,
+        version: ProtocolVersion,
     ) -> Result<Self, WireFormatError> {
         // See: backend_startup.c, ProcessStartupPacket
+
+        assert_eq!(version, Self::VERSION);
 
         // Subtle difference from PostgreSQL:
         // PostgreSQL does not check EOF here, but we do.
@@ -172,11 +382,32 @@ pub struct GSSENCRequest;
 
 impl GSSENCRequest {
     const VERSION: ProtocolVersion = ProtocolVersion::new(1234, 5680);
+
+    fn write_body_to<W>(&self, writer: &mut W) -> IoResult<()>
+    where
+        W: Write + ?Sized,
+    {
+        writer.write_version(Self::VERSION)?;
+
+        Ok(())
+    }
+
+    async fn write_body_to_async<W>(&self, writer: &mut W) -> IoResult<()>
+    where
+        W: CommonAsyncWrite + ?Sized,
+    {
+        writer.write_version_async(Self::VERSION).await?;
+
+        Ok(())
+    }
+
     fn parse_with_version(
         scanner: Scanner<'_>,
-        _version: ProtocolVersion,
+        version: ProtocolVersion,
     ) -> Result<Self, WireFormatError> {
         // See: backend_startup.c, ProcessStartupPacket
+
+        assert_eq!(version, Self::VERSION);
 
         // Subtle difference from PostgreSQL:
         // PostgreSQL does not check EOF here, but we do.
@@ -200,11 +431,53 @@ impl CancelRequest {
 
     const MAX_SECRET_KEY_LENGTH: usize = 256;
 
+    fn write_body_to<W>(&self, writer: &mut W) -> IoResult<()>
+    where
+        W: Write + ?Sized,
+    {
+        self.validate_secret_key_length()?;
+        writer.write_version(Self::VERSION)?;
+        writer.write_u32(self.process_id as u32)?;
+        writer.write_bytes(&self.secret_key)?;
+
+        Ok(())
+    }
+
+    async fn write_body_to_async<W>(&self, writer: &mut W) -> IoResult<()>
+    where
+        W: CommonAsyncWrite + ?Sized,
+    {
+        self.validate_secret_key_length()?;
+        writer.write_version_async(Self::VERSION).await?;
+        writer.write_u32_async(self.process_id as u32).await?;
+        writer.write_bytes_async(&self.secret_key).await?;
+
+        Ok(())
+    }
+
+    fn validate_secret_key_length(&self) -> IoResult<()> {
+        let length = self.secret_key.len();
+        if length > Self::MAX_SECRET_KEY_LENGTH {
+            return Err(IoError::new(
+                IoErrorKind::InvalidInput,
+                "secret key too long",
+            ));
+        } else if length == 0 {
+            return Err(IoError::new(
+                IoErrorKind::InvalidInput,
+                "secret key must not be empty",
+            ));
+        }
+        Ok(())
+    }
+
     fn parse_with_version(
         mut scanner: Scanner<'_>,
-        _version: ProtocolVersion,
+        version: ProtocolVersion,
     ) -> Result<Self, WireFormatError> {
         // See: backend_startup.c, ProcessCancelRequestPacket
+
+        assert_eq!(version, Self::VERSION);
 
         let process_id = scanner
             .read_u32()
@@ -259,6 +532,138 @@ pub enum ReplicationMode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn startup_bytes(msg: &StartupLikeMessage) -> IoResult<Vec<u8>> {
+        let mut buf = Vec::new();
+        msg.write_body_to(&mut buf)?;
+        Ok(buf)
+    }
+
+    #[test]
+    fn test_startup_message_writing_simple() {
+        let msg = StartupMessage {
+            version: ProtocolVersion::new(3, 0),
+            database_name: CString::new("testdb").unwrap(),
+            user_name: CString::new("testuser").unwrap(),
+            cmdline_options: None,
+            replication: ReplicationMode::None,
+            other_protocol_options: vec![],
+            guc_options: vec![],
+        }
+        .into();
+        assert_eq!(
+            startup_bytes(&msg).unwrap(),
+            b"\x00\x03\x00\x00user\0testuser\0database\0testdb\0\0"
+        );
+    }
+
+    #[test]
+    fn test_startup_message_writing_cmdline_options() {
+        let msg = StartupMessage {
+            version: ProtocolVersion::new(3, 0),
+            database_name: CString::new("testdb").unwrap(),
+            user_name: CString::new("testuser").unwrap(),
+            cmdline_options: Some(CString::new("-S 8192").unwrap()),
+            replication: ReplicationMode::None,
+            other_protocol_options: vec![],
+            guc_options: vec![],
+        }
+        .into();
+        assert_eq!(
+            startup_bytes(&msg).unwrap(),
+            b"\x00\x03\x00\x00user\0testuser\0database\0testdb\0options\0-S 8192\0\0"
+        );
+    }
+
+    #[test]
+    fn test_startup_message_writing_replication_database() {
+        let msg = StartupMessage {
+            version: ProtocolVersion::new(3, 0),
+            database_name: CString::new("testdb").unwrap(),
+            user_name: CString::new("testuser").unwrap(),
+            cmdline_options: None,
+            replication: ReplicationMode::DatabaseReplication,
+            other_protocol_options: vec![],
+            guc_options: vec![],
+        }
+        .into();
+        assert_eq!(
+            startup_bytes(&msg).unwrap(),
+            b"\x00\x03\x00\x00user\0testuser\0database\0testdb\0replication\0database\0\0"
+        );
+    }
+
+    #[test]
+    fn test_startup_message_writing_replication_true() {
+        let msg = StartupMessage {
+            version: ProtocolVersion::new(3, 0),
+            database_name: CString::new("testdb").unwrap(),
+            user_name: CString::new("testuser").unwrap(),
+            cmdline_options: None,
+            replication: ReplicationMode::Replication,
+            other_protocol_options: vec![],
+            guc_options: vec![],
+        }
+        .into();
+        assert_eq!(
+            startup_bytes(&msg).unwrap(),
+            b"\x00\x03\x00\x00user\0testuser\0database\0testdb\0replication\0true\0\0"
+        );
+    }
+
+    #[test]
+    fn test_startup_message_writing_protocol_options() {
+        let msg = StartupMessage {
+            version: ProtocolVersion::new(3, 0),
+            database_name: CString::new("testdb").unwrap(),
+            user_name: CString::new("testuser").unwrap(),
+            cmdline_options: None,
+            replication: ReplicationMode::None,
+            other_protocol_options: vec![
+                (
+                    CString::new("_pq_.foo").unwrap(),
+                    CString::new("bar").unwrap(),
+                ),
+                (
+                    CString::new("_pq_.baz").unwrap(),
+                    CString::new("qux").unwrap(),
+                ),
+            ],
+            guc_options: vec![],
+        }
+        .into();
+        assert_eq!(
+            startup_bytes(&msg).unwrap(),
+            b"\x00\x03\x00\x00user\0testuser\0database\0testdb\0_pq_.foo\0bar\0_pq_.baz\0qux\0\0"
+        );
+    }
+
+    #[test]
+    fn test_startup_message_writing_guc_options() {
+        let msg = StartupMessage {
+            version: ProtocolVersion::new(3, 0),
+            database_name: CString::new("testdb").unwrap(),
+            user_name: CString::new("testuser").unwrap(),
+            cmdline_options: None,
+            replication: ReplicationMode::None,
+            other_protocol_options: vec![],
+            guc_options: vec![
+                (
+                    CString::new("search_path").unwrap(),
+                    CString::new("public,custom").unwrap(),
+                ),
+                (
+                    CString::new("application_name").unwrap(),
+                    CString::new("myapp").unwrap(),
+                ),
+            ],
+        }
+        .into();
+        assert_eq!(
+            startup_bytes(&msg).unwrap(),
+            b"\x00\x03\x00\x00user\0testuser\0database\0testdb\0search_path\0public,custom\0application_name\0myapp\0\0"
+        );
+    }
 
     #[test]
     fn test_startup_message_parsing_simple() {
@@ -518,6 +923,14 @@ mod tests {
     }
 
     #[test]
+    fn test_ssl_request_writing() {
+        let msg = SSLRequest.into();
+
+        // 0x04D2 = 1234, 0x162F = 5679
+        assert_eq!(startup_bytes(&msg).unwrap(), b"\x04\xD2\x16\x2F");
+    }
+
+    #[test]
     fn test_ssl_request_parsing() {
         // 0x04D2 = 1234, 0x162F = 5679
         let data = &b"\x04\xD2\x16\x2F"[..];
@@ -539,6 +952,14 @@ mod tests {
     }
 
     #[test]
+    fn test_gssenc_request_writing() {
+        let msg = GSSENCRequest.into();
+
+        // 0x04D2 = 1234, 0x1630 = 5680
+        assert_eq!(startup_bytes(&msg).unwrap(), b"\x04\xD2\x16\x30");
+    }
+
+    #[test]
     fn test_gssenc_request_parsing() {
         // 0x04D2 = 1234, 0x1630 = 5680
         let data = &b"\x04\xD2\x16\x30"[..];
@@ -557,6 +978,49 @@ mod tests {
             err.to_string(),
             "invalid GSSENC request packet layout: expected empty body"
         );
+    }
+
+    #[test]
+    fn test_cancel_request_writing_simple() {
+        let msg = CancelRequest {
+            process_id: 12345,
+            secret_key: b"secretkeydata".to_vec(),
+        }
+        .into();
+        // 0x04D2 = 1234, 0x162E = 5678
+        assert_eq!(
+            startup_bytes(&msg).unwrap(),
+            b"\x04\xD2\x16\x2E\x00\x00\x30\x39secretkeydata"
+        );
+    }
+
+    #[test]
+    fn test_cancel_request_writing_min_length() {
+        let msg = CancelRequest {
+            process_id: 12345,
+            secret_key: b"x".to_vec(),
+        }
+        .into();
+        // 0x04D2 = 1234, 0x162E = 5678
+        assert_eq!(
+            startup_bytes(&msg).unwrap(),
+            b"\x04\xD2\x16\x2E\x00\x00\x30\x39x"
+        );
+    }
+
+    #[test]
+    fn test_cancel_request_writing_max_length() {
+        let msg = CancelRequest {
+            process_id: 12345,
+            secret_key: b"a".repeat(256),
+        }
+        .into();
+        // 0x04D2 = 1234, 0x162E = 5678
+        assert_eq!(startup_bytes(&msg).unwrap(), {
+            let mut v = b"\x04\xD2\x16\x2E\x00\x00\x30\x39".to_vec();
+            v.extend(b"a".repeat(256));
+            v
+        });
     }
 
     #[test]
