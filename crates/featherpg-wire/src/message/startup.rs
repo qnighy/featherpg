@@ -1,11 +1,13 @@
 use std::{
     ffi::CString,
-    io::{Error as IoError, ErrorKind as IoErrorKind, Result as IoResult, Write},
+    io::{BufRead, Error as IoError, ErrorKind as IoErrorKind, Result as IoResult, Write},
 };
 
 use crate::{
     ProtocolVersion,
-    message_common::{Scanner, WireFormatError, WriteWireExt},
+    message_common::{
+        Scanner, StreamError, StreamScanner, WireFormatError, WriteWireExt, read_streamed,
+    },
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -41,6 +43,8 @@ impl From<CancelRequest> for StartupLikeMessage {
 }
 
 impl StartupLikeMessage {
+    const MAX_STARTUP_PACKET_LENGTH: usize = 10000;
+
     pub fn write_body_to<W>(&self, writer: &mut W) -> IoResult<()>
     where
         W: Write + ?Sized,
@@ -51,6 +55,34 @@ impl StartupLikeMessage {
             StartupLikeMessage::GSSENCRequest(msg) => msg.write_body_to(writer),
             StartupLikeMessage::CancelRequest(msg) => msg.write_body_to(writer),
         }
+    }
+
+    pub fn read_from<R>(reader: &mut R) -> IoResult<Self>
+    where
+        R: BufRead + ?Sized,
+    {
+        read_streamed(reader, |scanner| Self::try_read(scanner))
+    }
+
+    fn try_read(scanner: &mut StreamScanner<'_>) -> Result<Self, StreamError<WireFormatError>> {
+        let len = scanner
+            .read_u32()
+            .map_err(|e| e.map(|_| WireFormatError::StartupIncompleteLength))?
+            as usize;
+
+        if len < 4 {
+            return Err(StreamError::from(WireFormatError::StartupIncompleteLength));
+        } else if len > Self::MAX_STARTUP_PACKET_LENGTH {
+            return Err(StreamError::from(WireFormatError::StartupTooLong));
+        }
+
+        let body = scanner
+            .read_bytes(len)
+            .map_err(|e| e.map(|_| WireFormatError::StartupIncompleteBody))?;
+
+        let msg = Self::parse_body(body)?;
+
+        Ok(msg)
     }
 
     pub fn parse_body(body: &[u8]) -> Result<Self, WireFormatError> {

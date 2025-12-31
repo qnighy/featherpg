@@ -1,6 +1,6 @@
 use std::{
     ffi::{CStr, CString},
-    io::{self, Result as IoResult, Write},
+    io::{self, BufRead, Error as IoError, ErrorKind as IoErrorKind, Result as IoResult, Write},
     str::Utf8Error,
 };
 
@@ -83,17 +83,17 @@ pub(crate) trait WriteWireExt: Write {
 
 impl<T: Write + ?Sized> WriteWireExt for T {}
 
-pub(super) struct Scanner<'a> {
+pub(crate) struct Scanner<'a> {
     data: &'a [u8],
     position: usize,
 }
 
 impl<'a> Scanner<'a> {
-    pub(super) fn new(data: &'a [u8]) -> Self {
+    pub(crate) fn new(data: &'a [u8]) -> Self {
         Self { data, position: 0 }
     }
 
-    pub(super) fn read_bytes(&mut self, count: usize) -> Result<&'a [u8], EofError> {
+    pub(crate) fn read_bytes(&mut self, count: usize) -> Result<&'a [u8], EofError> {
         if self.position + count > self.data.len() {
             return Err(EofError);
         }
@@ -103,13 +103,13 @@ impl<'a> Scanner<'a> {
         Ok(&self.data[start..self.position])
     }
 
-    pub(super) fn read_remaining_bytes(&mut self) -> &'a [u8] {
+    pub(crate) fn read_remaining_bytes(&mut self) -> &'a [u8] {
         let start = self.position;
         self.position = self.data.len();
         &self.data[start..]
     }
 
-    pub(super) fn read_cstring_old(&mut self) -> Result<String, WireFormatError> {
+    pub(crate) fn read_cstring_old(&mut self) -> Result<String, WireFormatError> {
         let start = self.position;
         while self.position < self.data.len() && self.data[self.position] != 0 {
             self.position += 1;
@@ -126,19 +126,19 @@ impl<'a> Scanner<'a> {
         Ok(s)
     }
 
-    pub(super) fn read_cstring(&mut self) -> Result<CString, EofError> {
+    pub(crate) fn read_cstring(&mut self) -> Result<CString, EofError> {
         let s = CStr::from_bytes_until_nul(&self.data[self.position..]).map_err(|_| EofError)?;
         self.position += s.to_bytes_with_nul().len();
         Ok(s.to_owned())
     }
 
-    pub(super) fn read_u32(&mut self) -> Result<u32, EofError> {
+    pub(crate) fn read_u32(&mut self) -> Result<u32, EofError> {
         let bytes = self.read_bytes(4)?;
         let value = u32::from_be_bytes(bytes.try_into().unwrap());
         Ok(value)
     }
 
-    pub(super) fn read_version(&mut self) -> Result<ProtocolVersion, EofError> {
+    pub(crate) fn read_version(&mut self) -> Result<ProtocolVersion, EofError> {
         let major_bytes = self.read_bytes(2)?;
         let minor_bytes = self.read_bytes(2)?;
 
@@ -148,7 +148,7 @@ impl<'a> Scanner<'a> {
         Ok(ProtocolVersion { major, minor })
     }
 
-    pub(super) fn read_eof(&self) -> Result<(), ExtraByteError> {
+    pub(crate) fn read_eof(&self) -> Result<(), ExtraByteError> {
         if self.position < self.data.len() {
             return Err(ExtraByteError);
         }
@@ -156,17 +156,179 @@ impl<'a> Scanner<'a> {
     }
 }
 
+pub(crate) fn read_streamed<R, T, E, F>(reader: &mut R, mut f: F) -> IoResult<T>
+where
+    R: BufRead + ?Sized,
+    F: FnMut(&mut StreamScanner<'_>) -> Result<T, StreamError<E>>,
+    E: Into<IoError>,
+{
+    let mut last_len = 0;
+    let mut last_demand = 1;
+
+    // First loop: use the built-in buffer of the BufRead
+    loop {
+        let buf = reader.fill_buf()?;
+        if buf.len() <= last_len {
+            break;
+        }
+
+        let mut scanner = StreamScanner::new_prefix(buf);
+        match f(&mut scanner) {
+            Ok(value) => {
+                let consumed = scanner.consumed();
+                reader.consume(consumed);
+                return Ok(value);
+            }
+            Err(StreamError::MoreDataNeeded { needed }) => {
+                last_len = buf.len();
+                last_demand = scanner.consumed() + needed;
+                continue;
+            }
+            Err(StreamError::Other(e)) => {
+                return Err(e.into());
+            }
+        }
+    }
+
+    // Second loop: allocate our own buffer and read into it
+    let mut buffer: Vec<u8> = vec![0; last_demand];
+    let mut pos = 0;
+    'outer: loop {
+        while pos < buffer.len() {
+            let n = reader.read(&mut buffer[pos..])?;
+            if n == 0 {
+                break 'outer;
+            }
+            pos += n;
+        }
+
+        let mut scanner = StreamScanner::new_prefix(&buffer[..pos]);
+        match f(&mut scanner) {
+            Ok(value) => {
+                // It should have consumed pos bytes (= buffer.len() bytes)
+                return Ok(value);
+            }
+            Err(StreamError::MoreDataNeeded { needed }) => {
+                buffer.resize(pos + needed, 0);
+                continue;
+            }
+            Err(StreamError::Other(e)) => {
+                return Err(e.into());
+            }
+        }
+    }
+
+    // Final attempt at EOF
+    let mut scanner = StreamScanner::new_all(&buffer[..pos]);
+    match f(&mut scanner) {
+        Ok(value) => {
+            return Ok(value);
+        }
+        Err(StreamError::MoreDataNeeded { .. }) => {
+            return Err(IoError::new(
+                IoErrorKind::UnexpectedEof,
+                "unexpected end of stream",
+            ));
+        }
+        Err(StreamError::Other(e)) => {
+            return Err(e.into());
+        }
+    }
+}
+
+pub(crate) struct StreamScanner<'a> {
+    data: &'a [u8],
+    position: usize,
+    is_eof: bool,
+}
+
+impl<'a> StreamScanner<'a> {
+    pub(crate) fn new_prefix(data: &'a [u8]) -> Self {
+        Self {
+            data,
+            position: 0,
+            is_eof: false,
+        }
+    }
+
+    pub(crate) fn new_all(data: &'a [u8]) -> Self {
+        Self {
+            data,
+            position: 0,
+            is_eof: true,
+        }
+    }
+
+    pub(crate) fn consumed(&self) -> usize {
+        self.position
+    }
+
+    pub(crate) fn reserve_bytes(&mut self, count: usize) -> Result<(), StreamError<EofError>> {
+        if self.position + count > self.data.len() {
+            if self.is_eof {
+                return Err(EofError.into());
+            } else {
+                return Err(StreamError::MoreDataNeeded {
+                    needed: self.position + count - self.data.len(),
+                });
+            }
+        }
+
+        Ok(())
+    }
+
+    pub(super) fn read_bytes(&mut self, count: usize) -> Result<&'a [u8], StreamError<EofError>> {
+        self.reserve_bytes(count)?;
+
+        let start = self.position;
+        self.position += count;
+        Ok(&self.data[start..self.position])
+    }
+
+    pub(crate) fn read_u32(&mut self) -> Result<u32, StreamError<EofError>> {
+        let bytes = self.read_bytes(4)?;
+        let value = u32::from_be_bytes(bytes.try_into().unwrap());
+        Ok(value)
+    }
+}
+
 #[derive(Debug, Error)]
 #[error("end of file reached before completing read")]
-pub(super) struct EofError;
+pub(crate) struct EofError;
+
+#[derive(Debug, Error)]
+pub(crate) enum StreamError<E> {
+    #[error("more data needed to complete read")]
+    MoreDataNeeded { needed: usize },
+    #[error(transparent)]
+    Other(#[from] E),
+}
+
+impl<E> StreamError<E> {
+    pub(crate) fn map<F, O>(self, f: F) -> StreamError<O>
+    where
+        F: FnOnce(E) -> O,
+    {
+        match self {
+            StreamError::MoreDataNeeded { needed } => StreamError::MoreDataNeeded { needed },
+            StreamError::Other(e) => StreamError::Other(f(e)),
+        }
+    }
+}
 
 #[derive(Debug, Error)]
 #[error("extra bytes found where none were expected")]
-pub(super) struct ExtraByteError;
+pub(crate) struct ExtraByteError;
 
 #[derive(Debug, Error)]
-pub(super) enum WireFormatError {
+pub(crate) enum WireFormatError {
     // Found in backend_startup.c, ProcessStartupPacket
+    #[error("incomplete startup packet")]
+    StartupIncompleteLength,
+    #[error("invalid length of startup packet")]
+    StartupTooLong,
+    #[error("invalid length of startup packet")]
+    StartupIncompleteBody,
     #[error("invalid length of startup packet")]
     StartupIncompleteVersion,
     #[error("invalid startup packet layout: expected terminator as last byte")]
@@ -202,4 +364,10 @@ pub(super) enum WireFormatError {
     InvalidUtf8(#[from] Utf8Error),
     #[error("Trailing bytes in message")]
     ExtraBytes,
+}
+
+impl From<WireFormatError> for IoError {
+    fn from(err: WireFormatError) -> Self {
+        IoError::new(IoErrorKind::InvalidData, err)
+    }
 }
