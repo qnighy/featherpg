@@ -436,12 +436,17 @@ impl WireMessage {
         let mut scanner = Scanner::new(body);
         let msg = match type_byte {
             NO_TYPE_BYTE if state == WireState::BackendStartup => {
-                let version = scanner.read_version()?;
+                let version = scanner
+                    .read_version()
+                    .map_err(|_| WireFormatError::UnexpectedEof)?;
                 match version {
                     VERSION_SSL_REQUEST => WireMessage::SSLRequest,
                     VERSION_GSSENC_REQUEST => WireMessage::GSSENCRequest,
                     VERSION_CANCEL_REQUEST => {
-                        let process_id = scanner.read_u32()? as i32;
+                        let process_id = scanner
+                            .read_u32()
+                            .map_err(|_| WireFormatError::UnexpectedEof)?
+                            as i32;
                         let secret_key = scanner.read_remaining_bytes().to_owned();
                         WireMessage::CancelRequest {
                             process_id,
@@ -466,12 +471,16 @@ impl WireMessage {
                 }
             }
             TYPE_BYTE_AUTHENTICATION => {
-                let auth_type = scanner.read_u32()?;
+                let auth_type = scanner
+                    .read_u32()
+                    .map_err(|_| WireFormatError::UnexpectedEof)?;
                 match auth_type {
                     AUTH_TYPE_OK => WireMessage::AuthenticationOk,
                     AUTH_TYPE_CLEARTEXT_PASSWORD => WireMessage::AuthenticationCleartextPassword,
                     AUTH_TYPE_MD5_PASSWORD => {
-                        let salt = scanner.read_bytes(4)?;
+                        let salt = scanner
+                            .read_bytes(4)
+                            .map_err(|_| WireFormatError::UnexpectedEof)?;
                         let salt = <[u8; 4]>::try_from(salt).unwrap();
                         WireMessage::AuthenticationMD5Password { salt }
                     }
@@ -505,8 +514,12 @@ impl WireMessage {
                 }
             }
             TYPE_BYTE_NEGOTIATE_PROTOCOL_VERSION => {
-                let version = scanner.read_version()?;
-                let option_count = scanner.read_u32()?;
+                let version = scanner
+                    .read_version()
+                    .map_err(|_| WireFormatError::UnexpectedEof)?;
+                let option_count = scanner
+                    .read_u32()
+                    .map_err(|_| WireFormatError::UnexpectedEof)?;
                 let mut unrecognized_options = Vec::with_capacity(option_count as usize);
                 for _ in 0..option_count {
                     let option = scanner.read_cstring_old()?;
@@ -519,7 +532,9 @@ impl WireMessage {
             }
             _ => return Err(WireFormatError::UnknownTypeByte { type_byte }),
         };
-        scanner.read_eof()?;
+        scanner
+            .read_eof()
+            .map_err(|_| WireFormatError::UnexpectedEof)?;
         Ok(msg)
     }
 }

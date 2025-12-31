@@ -93,9 +93,9 @@ impl<'a> Scanner<'a> {
         Self { data, position: 0 }
     }
 
-    pub(super) fn read_bytes(&mut self, count: usize) -> Result<&'a [u8], WireFormatError> {
+    pub(super) fn read_bytes(&mut self, count: usize) -> Result<&'a [u8], EofError> {
         if self.position + count > self.data.len() {
-            return Err(WireFormatError::UnexpectedEof);
+            return Err(EofError);
         }
 
         let start = self.position;
@@ -126,22 +126,19 @@ impl<'a> Scanner<'a> {
         Ok(s)
     }
 
-    pub(super) fn read_cstring(
-        &mut self,
-        on_runaway: WireFormatError,
-    ) -> Result<CString, WireFormatError> {
-        let s = CStr::from_bytes_until_nul(&self.data[self.position..]).map_err(|_| on_runaway)?;
+    pub(super) fn read_cstring(&mut self) -> Result<CString, EofError> {
+        let s = CStr::from_bytes_until_nul(&self.data[self.position..]).map_err(|_| EofError)?;
         self.position += s.to_bytes_with_nul().len();
         Ok(s.to_owned())
     }
 
-    pub(super) fn read_u32(&mut self) -> Result<u32, WireFormatError> {
+    pub(super) fn read_u32(&mut self) -> Result<u32, EofError> {
         let bytes = self.read_bytes(4)?;
         let value = u32::from_be_bytes(bytes.try_into().unwrap());
         Ok(value)
     }
 
-    pub(super) fn read_version(&mut self) -> Result<ProtocolVersion, WireFormatError> {
+    pub(super) fn read_version(&mut self) -> Result<ProtocolVersion, EofError> {
         let major_bytes = self.read_bytes(2)?;
         let minor_bytes = self.read_bytes(2)?;
 
@@ -151,17 +148,27 @@ impl<'a> Scanner<'a> {
         Ok(ProtocolVersion { major, minor })
     }
 
-    pub(super) fn read_eof(&self) -> Result<(), WireFormatError> {
+    pub(super) fn read_eof(&self) -> Result<(), ExtraByteError> {
         if self.position < self.data.len() {
-            return Err(WireFormatError::ExtraBytes);
+            return Err(ExtraByteError);
         }
         Ok(())
     }
 }
 
 #[derive(Debug, Error)]
+#[error("end of file reached before completing read")]
+pub(super) struct EofError;
+
+#[derive(Debug, Error)]
+#[error("extra bytes found where none were expected")]
+pub(super) struct ExtraByteError;
+
+#[derive(Debug, Error)]
 pub(super) enum WireFormatError {
     // Found in backend_startup.c, ProcessStartupPacket
+    #[error("invalid length of startup packet")]
+    StartupIncompleteVersion,
     #[error("invalid startup packet layout: expected terminator as last byte")]
     StartupPacketExtraBytes,
     #[error("invalid startup packet layout: expected terminator as last byte")]

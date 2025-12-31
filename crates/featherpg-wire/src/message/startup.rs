@@ -55,7 +55,9 @@ impl StartupLikeMessage {
 
     pub fn parse_body(body: &[u8]) -> Result<Self, WireFormatError> {
         let mut scanner = Scanner::new(body);
-        let version = scanner.read_version()?;
+        let version = scanner
+            .read_version()
+            .map_err(|_| WireFormatError::StartupIncompleteVersion)?;
 
         match version {
             SSLRequest::VERSION => Ok(SSLRequest::parse_with_version(scanner, version)?.into()),
@@ -194,11 +196,15 @@ impl StartupMessage {
         let mut guc_options = Vec::new();
 
         loop {
-            let name = scanner.read_cstring(WireFormatError::StartupPacketUnterminatedString)?;
+            let name = scanner
+                .read_cstring()
+                .map_err(|_| WireFormatError::StartupPacketUnterminatedString)?;
             if name.is_empty() {
                 break;
             }
-            let value = scanner.read_cstring(WireFormatError::StartupPacketUnterminatedString)?;
+            let value = scanner
+                .read_cstring()
+                .map_err(|_| WireFormatError::StartupPacketUnterminatedString)?;
 
             match name.as_bytes() {
                 b"database" => database_name = Some(value),
