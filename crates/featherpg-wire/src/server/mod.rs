@@ -34,7 +34,11 @@ pub enum NegotiatedEncryption<S> {
     /// Continue the protocol in cleartext.
     Cleartext(ConnectionKind<S>),
     /// You need to upgrade the connection to SSL/TLS.
-    UseSSL(WithExcess<S>),
+    UseSSL {
+        stream: WithExcess<S>,
+        /// If true, the caller must ensure that ALPN negotiation selects "postgresql".
+        require_alpn: bool,
+    },
     /// You need to upgrade the connection to GSSENC.
     UseGSSENC(WithExcess<S>),
 }
@@ -61,10 +65,13 @@ where
         if capabilities.ssl {
             // No write so far, so we don't need to flush
             let (stream, read_buf, _) = stream.into_parts();
-            return Ok(NegotiatedEncryption::UseSSL(WithExcess {
-                stream,
-                excess_read: BytesReader::from(Vec::from(read_buf)),
-            }));
+            return Ok(NegotiatedEncryption::UseSSL {
+                stream: WithExcess {
+                    stream,
+                    excess_read: BytesReader::from(Vec::from(read_buf)),
+                },
+                require_alpn: true,
+            });
         } else {
             return Err(IoError::new(
                 IoErrorKind::Other,
@@ -82,10 +89,13 @@ where
                     stream.write_u8(b'S')?;
                     stream.flush()?;
                     let (stream, read_buf, _) = stream.into_parts();
-                    return Ok(NegotiatedEncryption::UseSSL(WithExcess {
-                        stream,
-                        excess_read: BytesReader::from(Vec::from(read_buf)),
-                    }));
+                    return Ok(NegotiatedEncryption::UseSSL {
+                        stream: WithExcess {
+                            stream,
+                            excess_read: BytesReader::from(Vec::from(read_buf)),
+                        },
+                        require_alpn: false,
+                    });
                 } else {
                     stream.write_u8(b'N')?;
                     stream.flush()?;
@@ -150,7 +160,7 @@ where
         },
     )? {
         NegotiatedEncryption::Cleartext(connection_kind) => Ok(connection_kind),
-        NegotiatedEncryption::UseSSL(_) => unreachable!(),
+        NegotiatedEncryption::UseSSL { .. } => unreachable!(),
         NegotiatedEncryption::UseGSSENC(_) => unreachable!(),
     }
 }
