@@ -67,6 +67,7 @@ where
                     }));
                 } else {
                     stream.write_u8(b'N')?;
+                    stream.flush()?;
                     msg = WireMessage::read_from(&mut stream, WireState::BackendStartup)?;
                 }
             }
@@ -81,6 +82,7 @@ where
                     }));
                 } else {
                     stream.write_u8(b'N')?;
+                    stream.flush()?;
                     msg = WireMessage::read_from(&mut stream, WireState::BackendStartup)?;
                 }
             }
