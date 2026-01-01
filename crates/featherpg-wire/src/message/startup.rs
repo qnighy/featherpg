@@ -10,6 +10,7 @@ use crate::{
     },
 };
 
+/// A message sent by the client as the first message on a new connection.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum StartupLikeMessage {
     Startup(StartupMessage),
@@ -106,6 +107,9 @@ impl StartupLikeMessage {
     }
 }
 
+/// A request to initiate an ordinary session.
+///
+/// Next state: StartupResponse (server active)
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct StartupMessage {
     pub version: ProtocolVersion,
@@ -293,6 +297,9 @@ impl StartupMessage {
     }
 }
 
+/// A request to initiate SSL-encrypted communication.
+///
+/// Next state: SSLResponse (server active)
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SSLRequest;
 
@@ -326,6 +333,9 @@ impl SSLRequest {
     }
 }
 
+/// A request to initiate GSSENC-encrypted communication.
+///
+/// Next state: GSSENCResponse (server active)
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct GSSENCRequest;
 
@@ -359,6 +369,9 @@ impl GSSENCRequest {
     }
 }
 
+/// A request to cancel a running query on a different connection.
+///
+/// Next state: connection close
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct CancelRequest {
     pub process_id: i32,

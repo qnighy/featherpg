@@ -10,6 +10,14 @@ use crate::{
     },
 };
 
+/// Indicates an error that occurred during processing of a client message.
+///
+/// For session startup, this is an unrecoverable error and
+/// the connection is closed afterwards.
+///
+/// For requests during an established session, this indicates
+/// a failure to process the specific request, and the session
+/// continues afterwards.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ErrorResponse {
     pub error: DiagnosticMessage,

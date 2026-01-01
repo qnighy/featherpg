@@ -5,6 +5,7 @@ use std::{
 
 use crate::{message::ErrorResponse, message_common::WireFormatError};
 
+/// A response to an SSLRequest message, sent by the server.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum SSLResponse {
     UseSSL(UseSSL),
@@ -51,6 +52,10 @@ impl SSLResponse {
     }
 }
 
+/// Indicates that the server is willing to switch to SSL/TLS.
+///
+/// Next state: connection is upgraded to SSL/TLS,
+///             then continue with StartupMessage (client active)
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct UseSSL;
 
@@ -58,6 +63,9 @@ impl UseSSL {
     pub const TYPE_BYTE: u8 = b'S';
 }
 
+/// Indicates that the server is not willing to switch to SSL/TLS.
+///
+/// Next state: continue with StartupMessage (client active)
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct NoSSL;
 

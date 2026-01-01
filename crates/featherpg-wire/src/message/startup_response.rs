@@ -5,11 +5,15 @@ use std::{
 
 use crate::{ProtocolVersion, message::ErrorResponse, message_common::WriteWireExt};
 
+/// A response to a StartupMessage, sent by the server.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum StartupResponse {
     NegotiateProtocolVersion(NegotiateProtocolVersion),
     AuthenticationOk(AuthenticationOk),
     // TODO: other authentication methods
+    /// Indicates an unrecoverable error during startup.
+    ///
+    /// Next state: connection close
     ErrorResponse(ErrorResponse),
 }
 
@@ -54,6 +58,9 @@ impl StartupResponse {
     }
 }
 
+/// Instructs the client to switch to a different protocol version.
+///
+/// Next state: continue in StartupResponse (server active)
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct NegotiateProtocolVersion {
     pub version: ProtocolVersion,
@@ -90,6 +97,9 @@ impl NegotiateProtocolVersion {
     }
 }
 
+/// Indicates that authentication was successful.
+///
+/// Next state: BackendStartupResponse (server active)
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct AuthenticationOk;
 

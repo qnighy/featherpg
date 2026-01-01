@@ -5,6 +5,7 @@ use std::{
 
 use crate::{message::ErrorResponse, message_common::WireFormatError};
 
+/// A response to a GSSENCRequest message, sent by the server.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum GSSENCResponse {
     UseGSSENC(UseGSSENC),
@@ -51,6 +52,10 @@ impl GSSENCResponse {
     }
 }
 
+/// Indicates that the server is willing to switch to GSSENC.
+///
+/// Next state: connection is upgraded to GSSENC,
+///             then continue with StartupMessage (client active)
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct UseGSSENC;
 
@@ -58,6 +63,9 @@ impl UseGSSENC {
     pub const TYPE_BYTE: u8 = b'G';
 }
 
+/// Indicates that the server is not willing to switch to GSSENC.
+///
+/// Next state: continue with StartupMessage (client active)
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct NoGSSENC;
 
