@@ -446,3 +446,214 @@ where
         self.inner.seek_relative(offset)
     }
 }
+
+#[derive(Debug)]
+pub(crate) enum Encryptable<S, TLSConn, GSSENCConn> {
+    Cleartext(S),
+    UseSSL(TLSConn),
+    UseGSSENC(GSSENCConn),
+}
+
+impl<S, TLSConn, GSSENCConn> Read for Encryptable<S, TLSConn, GSSENCConn>
+where
+    S: Read,
+    TLSConn: Read,
+    GSSENCConn: Read,
+{
+    fn read(&mut self, buf: &mut [u8]) -> IoResult<usize> {
+        match self {
+            Encryptable::Cleartext(s) => s.read(buf),
+            Encryptable::UseSSL(s) => s.read(buf),
+            Encryptable::UseGSSENC(s) => s.read(buf),
+        }
+    }
+
+    fn read_vectored(&mut self, bufs: &mut [IoSliceMut<'_>]) -> IoResult<usize> {
+        match self {
+            Encryptable::Cleartext(s) => s.read_vectored(bufs),
+            Encryptable::UseSSL(s) => s.read_vectored(bufs),
+            Encryptable::UseGSSENC(s) => s.read_vectored(bufs),
+        }
+    }
+
+    // fn is_read_vectored(&self) -> bool {
+    //     match self {
+    //         Encryptable::Cleartext(s) => s.is_read_vectored(),
+    //         Encryptable::UseSSL(s) => s.is_read_vectored(),
+    //         Encryptable::UseGSSENC(s) => s.is_read_vectored(),
+    //     }
+    // }
+
+    fn read_to_end(&mut self, buf: &mut Vec<u8>) -> IoResult<usize> {
+        match self {
+            Encryptable::Cleartext(s) => s.read_to_end(buf),
+            Encryptable::UseSSL(s) => s.read_to_end(buf),
+            Encryptable::UseGSSENC(s) => s.read_to_end(buf),
+        }
+    }
+
+    fn read_to_string(&mut self, buf: &mut String) -> IoResult<usize> {
+        match self {
+            Encryptable::Cleartext(s) => s.read_to_string(buf),
+            Encryptable::UseSSL(s) => s.read_to_string(buf),
+            Encryptable::UseGSSENC(s) => s.read_to_string(buf),
+        }
+    }
+
+    fn read_exact(&mut self, buf: &mut [u8]) -> IoResult<()> {
+        match self {
+            Encryptable::Cleartext(s) => s.read_exact(buf),
+            Encryptable::UseSSL(s) => s.read_exact(buf),
+            Encryptable::UseGSSENC(s) => s.read_exact(buf),
+        }
+    }
+
+    // fn read_buf(&mut self, buf: BorrowedCursor<'_>) -> IoResult<()> {
+    //     match self {
+    //         Encryptable::Cleartext(s) => s.read_buf(buf),
+    //         Encryptable::UseSSL(s) => s.read_buf(buf),
+    //         Encryptable::UseGSSENC(s) => s.read_buf(buf),
+    //     }
+    // }
+
+    // fn read_buf_exact(&mut self, cursor: BorrowedCursor<'_>) -> IoResult<()> {
+    //     match self {
+    //         Encryptable::Cleartext(s) => s.read_buf_exact(cursor),
+    //         Encryptable::UseSSL(s) => s.read_buf_exact(cursor),
+    //         Encryptable::UseGSSENC(s) => s.read_buf_exact(cursor),
+    //     }
+    // }
+}
+
+impl<S, TLSConn, GSSENCConn> BufRead for Encryptable<S, TLSConn, GSSENCConn>
+where
+    S: BufRead,
+    TLSConn: BufRead,
+    GSSENCConn: BufRead,
+{
+    fn fill_buf(&mut self) -> IoResult<&[u8]> {
+        match self {
+            Encryptable::Cleartext(s) => s.fill_buf(),
+            Encryptable::UseSSL(s) => s.fill_buf(),
+            Encryptable::UseGSSENC(s) => s.fill_buf(),
+        }
+    }
+
+    fn consume(&mut self, amount: usize) {
+        match self {
+            Encryptable::Cleartext(s) => s.consume(amount),
+            Encryptable::UseSSL(s) => s.consume(amount),
+            Encryptable::UseGSSENC(s) => s.consume(amount),
+        }
+    }
+
+    // fn has_data_left(&mut self) -> IoResult<bool> {
+    //     match self {
+    //         Encryptable::Cleartext(s) => s.has_data_left(),
+    //         Encryptable::UseSSL(s) => s.has_data_left(),
+    //         Encryptable::UseGSSENC(s) => s.has_data_left(),
+    //     }
+    // }
+
+    fn read_until(&mut self, byte: u8, buf: &mut Vec<u8>) -> IoResult<usize> {
+        match self {
+            Encryptable::Cleartext(s) => s.read_until(byte, buf),
+            Encryptable::UseSSL(s) => s.read_until(byte, buf),
+            Encryptable::UseGSSENC(s) => s.read_until(byte, buf),
+        }
+    }
+
+    fn skip_until(&mut self, byte: u8) -> IoResult<usize> {
+        match self {
+            Encryptable::Cleartext(s) => s.skip_until(byte),
+            Encryptable::UseSSL(s) => s.skip_until(byte),
+            Encryptable::UseGSSENC(s) => s.skip_until(byte),
+        }
+    }
+
+    fn read_line(&mut self, buf: &mut String) -> IoResult<usize> {
+        match self {
+            Encryptable::Cleartext(s) => s.read_line(buf),
+            Encryptable::UseSSL(s) => s.read_line(buf),
+            Encryptable::UseGSSENC(s) => s.read_line(buf),
+        }
+    }
+}
+
+impl<S, TLSConn, GSSENCConn> GetReadBuf for Encryptable<S, TLSConn, GSSENCConn>
+where
+    S: GetReadBuf,
+    TLSConn: GetReadBuf,
+    GSSENCConn: GetReadBuf,
+{
+    fn read_buffer(&self) -> &[u8] {
+        match self {
+            Encryptable::Cleartext(s) => s.read_buffer(),
+            Encryptable::UseSSL(s) => s.read_buffer(),
+            Encryptable::UseGSSENC(s) => s.read_buffer(),
+        }
+    }
+}
+
+impl<S, TLSConn, GSSENCConn> Write for Encryptable<S, TLSConn, GSSENCConn>
+where
+    S: Write,
+    TLSConn: Write,
+    GSSENCConn: Write,
+{
+    fn write(&mut self, buf: &[u8]) -> IoResult<usize> {
+        match self {
+            Encryptable::Cleartext(s) => s.write(buf),
+            Encryptable::UseSSL(s) => s.write(buf),
+            Encryptable::UseGSSENC(s) => s.write(buf),
+        }
+    }
+
+    fn flush(&mut self) -> IoResult<()> {
+        match self {
+            Encryptable::Cleartext(s) => s.flush(),
+            Encryptable::UseSSL(s) => s.flush(),
+            Encryptable::UseGSSENC(s) => s.flush(),
+        }
+    }
+
+    fn write_vectored(&mut self, bufs: &[IoSlice<'_>]) -> IoResult<usize> {
+        match self {
+            Encryptable::Cleartext(s) => s.write_vectored(bufs),
+            Encryptable::UseSSL(s) => s.write_vectored(bufs),
+            Encryptable::UseGSSENC(s) => s.write_vectored(bufs),
+        }
+    }
+
+    // fn is_write_vectored(&self) -> bool {
+    //     match self {
+    //         Encryptable::Cleartext(s) => s.is_write_vectored(),
+    //         Encryptable::UseSSL(s) => s.is_write_vectored(),
+    //         Encryptable::UseGSSENC(s) => s.is_write_vectored(),
+    //     }
+    // }
+
+    fn write_all(&mut self, buf: &[u8]) -> IoResult<()> {
+        match self {
+            Encryptable::Cleartext(s) => s.write_all(buf),
+            Encryptable::UseSSL(s) => s.write_all(buf),
+            Encryptable::UseGSSENC(s) => s.write_all(buf),
+        }
+    }
+
+    // fn write_all_vectored(&mut self, bufs: &mut [IoSlice<'_>]) -> IoResult<()> {
+    //     match self {
+    //         Encryptable::Cleartext(s) => s.write_all_vectored(bufs),
+    //         Encryptable::UseSSL(s) => s.write_all_vectored(bufs),
+    //         Encryptable::UseGSSENC(s) => s.write_all_vectored(bufs),
+    //     }
+    // }
+
+    fn write_fmt(&mut self, args: fmt::Arguments<'_>) -> IoResult<()> {
+        match self {
+            Encryptable::Cleartext(s) => s.write_fmt(args),
+            Encryptable::UseSSL(s) => s.write_fmt(args),
+            Encryptable::UseGSSENC(s) => s.write_fmt(args),
+        }
+    }
+}

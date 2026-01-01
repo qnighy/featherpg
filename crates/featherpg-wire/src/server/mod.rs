@@ -4,15 +4,128 @@ use std::io::{
 
 use crate::{
     ProtocolVersion,
-    common::{BytesReader, WithExcess},
+    common::{BytesReader, GetReadBuf, VoidIO, WithExcess},
     io_util::BufReaderWriter,
     message::{
-        CancelRequest, GSSENCResponse, InitialRequest, NegotiateProtocolVersion, NoGSSENC, NoSSL,
-        SSLResponse, StartupMessage, StartupResponse, UseGSSENC, UseSSL,
+        CancelRequest, GSSENCResponse as RawGSSENCResponse, InitialRequest,
+        NegotiateProtocolVersion, NoGSSENC, NoSSL, SSLResponse as RawSSLResponse, StartupMessage,
+        StartupResponse, UseGSSENC, UseSSL,
     },
 };
 
-pub trait Serve {}
+/// A trait representing the ability to negotiate encryption.
+pub trait NegotiateEncryption<S> {
+    type UpgradeToTLS: UpgradeToTLS<S>;
+    type UpgradeToGSSENC: UpgradeToGSSENC<S>;
+    type InitializeBackend: InitializeBackend;
+
+    /// Handles an SSLRequest or direct TLS from the client.
+    fn tls(&mut self) -> IoResult<TLSResponse<Self::UpgradeToTLS>>;
+
+    /// Handles a GSSENCRequest from the client.
+    fn gssenc(&mut self) -> IoResult<GSSENCResponse<Self::UpgradeToGSSENC>>;
+
+    /// Concludes the encryption negotiation and proceeds to authentication.
+    fn start(
+        self,
+        req: StartupMessage,
+        auth: &mut Authenticator<'_>,
+    ) -> IoResult<Self::InitializeBackend>;
+
+    /// Processes a CancelRequest from the client.
+    fn process_cancel(self, req: CancelRequest) -> IoResult<()>;
+}
+
+#[derive(Debug)]
+pub enum TLSResponse<UpgradeToTLS> {
+    /// Upgrade the connection to SSL/TLS.
+    UseTLS(UpgradeToTLS),
+    /// Do not use SSL/TLS.
+    NoTLS,
+}
+
+/// A trait representing the ability to upgrade a stream to TLS.
+pub trait UpgradeToTLS<S> {
+    /// Type for upgraded SSL/TLS connections.
+    type TLSConn: GetReadBuf + Write;
+
+    /// Upgrades the given stream to TLS.
+    fn upgrade_to_tls(self, stream: S) -> IoResult<Self::TLSConn>;
+}
+
+#[derive(Debug)]
+pub struct NoTLSUpgrade {
+    inner: Void,
+}
+
+impl<S> UpgradeToTLS<S> for NoTLSUpgrade {
+    type TLSConn = VoidIO;
+
+    fn upgrade_to_tls(self, _stream: S) -> IoResult<Self::TLSConn> {
+        match self.inner {}
+    }
+}
+
+#[derive(Debug)]
+pub enum GSSENCResponse<UpgradeToGSSENC> {
+    /// Upgrade the connection to GSSENC.
+    UseGSSENC(UpgradeToGSSENC),
+    /// Do not use GSSENC.
+    NoGSSENC,
+}
+
+/// A trait representing the ability to upgrade a stream to GSSENC.
+pub trait UpgradeToGSSENC<S> {
+    /// Type for upgraded GSSENC connections.
+    type GSSENCConn: GetReadBuf + Write;
+
+    /// Upgrades the given stream to GSSENC.
+    fn upgrade_to_gssenc(self, stream: S) -> IoResult<Self::GSSENCConn>;
+}
+
+#[derive(Debug)]
+pub struct NoGSSENCUpgrade {
+    inner: Void,
+}
+
+impl<S> UpgradeToGSSENC<S> for NoGSSENCUpgrade {
+    type GSSENCConn = VoidIO;
+
+    fn upgrade_to_gssenc(self, _stream: S) -> IoResult<Self::GSSENCConn> {
+        match self.inner {}
+    }
+}
+
+#[derive(Debug)]
+enum Void {}
+
+/// A handle for performing authentication.
+#[derive(Debug)]
+pub struct Authenticator<'a> {
+    // TODO: put the actual handle here
+    _marker: std::marker::PhantomData<&'a ()>,
+}
+
+/// A trait representing the ability to report initialization statuses
+/// of the backend server.
+pub trait InitializeBackend {
+    type Session: Session;
+
+    fn initialize_backend(
+        self,
+        notifier: &mut InitializationNotifier<'_>,
+    ) -> IoResult<Self::Session>;
+}
+
+/// A handle for reporting initialization statuses.
+#[derive(Debug)]
+pub struct InitializationNotifier<'a> {
+    // TODO: put the actual handle here
+    _marker: std::marker::PhantomData<&'a ()>,
+}
+
+/// A trait representing the established session.
+pub trait Session {}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct EncryptionCapabilities {
@@ -64,7 +177,7 @@ where
         match msg {
             InitialRequest::SSLRequest(_) => {
                 if capabilities.ssl {
-                    SSLResponse::UseSSL(UseSSL).write_to(&mut stream)?;
+                    RawSSLResponse::UseSSL(UseSSL).write_to(&mut stream)?;
                     stream.flush()?;
                     let read_buf = stream.read_buffer().to_owned();
                     let stream = stream.into_inner().ok().unwrap();
@@ -76,7 +189,7 @@ where
                         require_alpn: false,
                     });
                 } else {
-                    SSLResponse::NoSSL(NoSSL).write_to(&mut stream)?;
+                    RawSSLResponse::NoSSL(NoSSL).write_to(&mut stream)?;
                     stream.flush()?;
                     msg = InitialRequest::read_from(&mut stream)?;
                 }
@@ -102,7 +215,7 @@ where
             }
             InitialRequest::GSSENCRequest(_) => {
                 if capabilities.gssenc {
-                    GSSENCResponse::UseGSSENC(UseGSSENC).write_to(&mut stream)?;
+                    RawGSSENCResponse::UseGSSENC(UseGSSENC).write_to(&mut stream)?;
                     stream.flush()?;
                     let read_buf = stream.read_buffer().to_owned();
                     let stream = stream.into_inner().ok().unwrap();
@@ -111,7 +224,7 @@ where
                         excess_read: BytesReader::from(read_buf),
                     }));
                 } else {
-                    GSSENCResponse::NoGSSENC(NoGSSENC).write_to(&mut stream)?;
+                    RawGSSENCResponse::NoGSSENC(NoGSSENC).write_to(&mut stream)?;
                     stream.flush()?;
                     msg = InitialRequest::read_from(&mut stream)?;
                 }

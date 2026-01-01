@@ -290,6 +290,110 @@ impl<S: Write> Write for WithExcess<S> {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct VoidIO {
+    inner: Void,
+}
+
+impl Read for VoidIO {
+    fn read(&mut self, _buf: &mut [u8]) -> IoResult<usize> {
+        match self.inner {}
+    }
+
+    fn read_vectored(&mut self, _bufs: &mut [IoSliceMut<'_>]) -> IoResult<usize> {
+        match self.inner {}
+    }
+
+    // fn is_read_vectored(&self) -> bool {
+    //     match self.inner {}
+    // }
+
+    fn read_to_end(&mut self, _buf: &mut Vec<u8>) -> IoResult<usize> {
+        match self.inner {}
+    }
+
+    fn read_to_string(&mut self, _buf: &mut String) -> IoResult<usize> {
+        match self.inner {}
+    }
+
+    fn read_exact(&mut self, _buf: &mut [u8]) -> IoResult<()> {
+        match self.inner {}
+    }
+
+    // fn read_buf(&mut self, _buf: BorrowedCursor<'_>) -> IoResult<()> {
+    //     match self.inner {}
+    // }
+
+    // fn read_buf_exact(&mut self, _cursor: BorrowedCursor<'_>) -> IoResult<()> {
+    //     match self.inner {}
+    // }
+}
+
+impl BufRead for VoidIO {
+    fn fill_buf(&mut self) -> IoResult<&[u8]> {
+        match self.inner {}
+    }
+
+    fn consume(&mut self, _amt: usize) {
+        match self.inner {}
+    }
+
+    // fn has_data_left(&mut self) -> IoResult<bool> {
+    //     match self.inner {}
+    // }
+
+    fn read_until(&mut self, _byte: u8, _buf: &mut Vec<u8>) -> IoResult<usize> {
+        match self.inner {}
+    }
+
+    fn skip_until(&mut self, _byte: u8) -> IoResult<usize> {
+        match self.inner {}
+    }
+
+    fn read_line(&mut self, _buf: &mut String) -> IoResult<usize> {
+        match self.inner {}
+    }
+}
+
+impl GetReadBuf for VoidIO {
+    fn read_buffer(&self) -> &[u8] {
+        match self.inner {}
+    }
+}
+
+impl Write for VoidIO {
+    fn write(&mut self, _buf: &[u8]) -> IoResult<usize> {
+        match self.inner {}
+    }
+
+    fn flush(&mut self) -> IoResult<()> {
+        match self.inner {}
+    }
+
+    fn write_vectored(&mut self, _bufs: &[IoSlice<'_>]) -> IoResult<usize> {
+        match self.inner {}
+    }
+
+    // fn is_write_vectored(&self) -> bool {
+    //     match self.inner {}
+    // }
+
+    fn write_all(&mut self, _buf: &[u8]) -> IoResult<()> {
+        match self.inner {}
+    }
+
+    // fn write_all_vectored(&mut self, _bufs: &mut [IoSlice<'_>]) -> IoResult<()> {
+    //     match self.inner {}
+    // }
+
+    fn write_fmt(&mut self, _args: fmt::Arguments<'_>) -> IoResult<()> {
+        match self.inner {}
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+enum Void {}
+
 #[cfg(test)]
 mod tests {
     use super::*;
