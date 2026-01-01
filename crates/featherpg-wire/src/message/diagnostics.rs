@@ -6,9 +6,7 @@ use std::{
 use crate::{
     common::GetReadBuf,
     errors::{DiagnosticMessage, DiagnosticSeverity},
-    message_common::{
-        Scanner, StreamError, StreamScanner, WireFormatError, WriteWireExt, read_streamed,
-    },
+    message_common::{ReadWireExt, WireFormatError, WriteWireExt},
 };
 
 /// Indicates an error that occurred during processing of a client message.
@@ -47,34 +45,12 @@ impl ErrorResponse {
         write_diagnostic_to(&self.error, writer)
     }
 
-    pub fn read_from<R>(reader: &mut R) -> IoResult<Self>
+    pub fn read_after_type_byte<R>(reader: &mut R) -> IoResult<Self>
     where
         R: GetReadBuf + ?Sized,
     {
-        read_streamed(reader, |scanner| Self::try_read(scanner))
-    }
-
-    fn try_read(scanner: &mut StreamScanner<'_>) -> Result<Self, StreamError<WireFormatError>> {
-        let len = scanner
-            .read_u32()
-            .map_err(|e| e.map(|_| WireFormatError::MessageTooShort))? as usize;
-
-        if len < 4 {
-            return Err(StreamError::from(WireFormatError::MessageTooShort));
-        }
-
-        let body = scanner
-            .read_bytes(len - 4)
-            .map_err(|e| e.map(|_| WireFormatError::IncompleteMessageBody))?;
-
-        let error = Self::parse_body(&body).map_err(StreamError::from)?;
-
-        Ok(error)
-    }
-
-    fn parse_body(body: &[u8]) -> Result<Self, WireFormatError> {
-        let diagnostic = parse_diagnostic(body)?;
-        Ok(ErrorResponse { error: diagnostic })
+        let error = read_diagnostic(reader)?;
+        Ok(ErrorResponse { error })
     }
 }
 
@@ -105,34 +81,12 @@ impl NoticeResponse {
         write_diagnostic_to(&self.notice, writer)
     }
 
-    pub fn read_from<R>(reader: &mut R) -> IoResult<Self>
+    pub fn read_after_type_byte<R>(reader: &mut R) -> IoResult<Self>
     where
         R: GetReadBuf + ?Sized,
     {
-        read_streamed(reader, |scanner| Self::try_read(scanner))
-    }
-
-    fn try_read(scanner: &mut StreamScanner<'_>) -> Result<Self, StreamError<WireFormatError>> {
-        let len = scanner
-            .read_u32()
-            .map_err(|e| e.map(|_| WireFormatError::MessageTooShort))? as usize;
-
-        if len < 4 {
-            return Err(StreamError::from(WireFormatError::MessageTooShort));
-        }
-
-        let body = scanner
-            .read_bytes(len - 4)
-            .map_err(|e| e.map(|_| WireFormatError::IncompleteMessageBody))?;
-
-        let error = Self::parse_body(&body).map_err(StreamError::from)?;
-
-        Ok(error)
-    }
-
-    fn parse_body(body: &[u8]) -> Result<Self, WireFormatError> {
-        let diagnostic = parse_diagnostic(body)?;
-        Ok(NoticeResponse { notice: diagnostic })
+        let notice = read_diagnostic(reader)?;
+        Ok(NoticeResponse { notice })
     }
 }
 
@@ -257,9 +211,17 @@ where
     Ok(())
 }
 
-fn parse_diagnostic(body: &[u8]) -> Result<DiagnosticMessage, WireFormatError> {
-    let mut scanner = Scanner::new(body);
+fn read_diagnostic<R>(reader: &mut R) -> IoResult<DiagnosticMessage>
+where
+    R: GetReadBuf + ?Sized,
+{
+    reader.read_sized(|reader| read_diagnostic_body(reader))
+}
 
+fn read_diagnostic_body<R>(reader: &mut R) -> IoResult<DiagnosticMessage>
+where
+    R: GetReadBuf + ?Sized,
+{
     let mut severity: Option<DiagnosticSeverity> = None;
     let mut localized_severity: Option<CString> = None;
     let mut code: Option<CString> = None;
@@ -280,7 +242,7 @@ fn parse_diagnostic(body: &[u8]) -> Result<DiagnosticMessage, WireFormatError> {
     let mut routine: Option<CString> = None;
 
     loop {
-        let field_type = scanner
+        let field_type = reader
             .read_u8()
             .map_err(|_| WireFormatError::ErrorOrNoticeUnterminated)?;
 
@@ -288,8 +250,8 @@ fn parse_diagnostic(body: &[u8]) -> Result<DiagnosticMessage, WireFormatError> {
             break;
         }
 
-        let value = scanner
-            .read_cstr()
+        let value = reader
+            .read_cstring()
             .map_err(|_| WireFormatError::ErrorOrNoticeUnterminated)?;
 
         match field_type {
@@ -308,8 +270,9 @@ fn parse_diagnostic(body: &[u8]) -> Result<DiagnosticMessage, WireFormatError> {
                     b"PANIC" => DiagnosticSeverity::Panic,
                     _ => {
                         return Err(WireFormatError::ErrorOrNoticeUnknownDiagnosticSeverity {
-                            severity: value.to_owned(),
-                        });
+                            severity: value,
+                        }
+                        .into());
                     }
                 });
             }
@@ -395,16 +358,16 @@ fn parse_diagnostic(body: &[u8]) -> Result<DiagnosticMessage, WireFormatError> {
     }
 
     let Some(severity) = severity else {
-        return Err(WireFormatError::ErrorOrNoticeMissingSeverity);
+        return Err(WireFormatError::ErrorOrNoticeMissingSeverity.into());
     };
     let Some(localized_severity) = localized_severity else {
-        return Err(WireFormatError::ErrorOrNoticeMissingLocalizedSeverity);
+        return Err(WireFormatError::ErrorOrNoticeMissingLocalizedSeverity.into());
     };
     let Some(code) = code else {
-        return Err(WireFormatError::ErrorOrNoticeMissingCode);
+        return Err(WireFormatError::ErrorOrNoticeMissingCode.into());
     };
     let Some(message) = message else {
-        return Err(WireFormatError::ErrorOrNoticeMissingMessage);
+        return Err(WireFormatError::ErrorOrNoticeMissingMessage.into());
     };
 
     Ok(DiagnosticMessage {
@@ -471,7 +434,9 @@ mod tests {
 
     #[test]
     fn test_error_parsing_simple() {
-        let msg = parse_diagnostic(b"SERROR\0VERROR\0C12345\0MTest error message\0\0").unwrap();
+        let msg =
+            read_diagnostic_body(&mut &b"SERROR\0VERROR\0C12345\0MTest error message\0\0"[..])
+                .unwrap();
         assert_eq!(
             msg,
             DiagnosticMessage {
