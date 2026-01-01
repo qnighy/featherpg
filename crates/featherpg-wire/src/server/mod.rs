@@ -5,7 +5,7 @@ use std::io::{
 use crate::{
     ProtocolVersion,
     common::{BytesReader, WithExcess},
-    io_util::BufStream,
+    io_util::BufReaderWriter,
     message::{
         CancelRequest, GSSENCResponse, NegotiateProtocolVersion, NoGSSENC, NoSSL, SSLResponse,
         StartupLikeMessage, StartupMessage, StartupResponse, UseGSSENC, UseSSL,
@@ -25,7 +25,10 @@ pub struct EncryptionCapabilities {
 }
 
 #[derive(Debug)]
-pub enum NegotiatedEncryption<S> {
+pub enum NegotiatedEncryption<S>
+where
+    S: Write,
+{
     /// Continue the protocol in cleartext.
     Cleartext(ConnectionKind<S>),
     /// You need to upgrade the connection to SSL/TLS.
@@ -39,7 +42,10 @@ pub enum NegotiatedEncryption<S> {
 }
 
 #[derive(Debug)]
-pub enum ConnectionKind<S> {
+pub enum ConnectionKind<S>
+where
+    S: Write,
+{
     /// Ordinary connection startup.
     Startup(Authentication<S>),
     /// An asynchronous cancel request.
@@ -53,17 +59,18 @@ pub fn negotiate_encryption<S>(
 where
     S: Read + Write,
 {
-    let mut stream = BufStream::new(stream);
+    let mut stream = BufReaderWriter::new(stream);
 
     // Check for direct SSL/TLS handshake attempt (>= PostgreSQL 17)
     if stream.fill_buf()?.get(0) == Some(&TLS_HANDSHAKE_SIGNATURE) {
         if capabilities.ssl {
             // No write so far, so we don't need to flush
-            let (stream, read_buf, _) = stream.into_parts();
+            let read_buf = stream.read_buffer().to_owned();
+            let stream = stream.into_inner().ok().unwrap();
             return Ok(NegotiatedEncryption::UseSSL {
                 stream: WithExcess {
                     stream,
-                    excess_read: BytesReader::from(Vec::from(read_buf)),
+                    excess_read: BytesReader::from(read_buf),
                 },
                 require_alpn: true,
             });
@@ -83,11 +90,12 @@ where
                 if capabilities.ssl {
                     SSLResponse::UseSSL(UseSSL).write_to(&mut stream)?;
                     stream.flush()?;
-                    let (stream, read_buf, _) = stream.into_parts();
+                    let read_buf = stream.read_buffer().to_owned();
+                    let stream = stream.into_inner().ok().unwrap();
                     return Ok(NegotiatedEncryption::UseSSL {
                         stream: WithExcess {
                             stream,
-                            excess_read: BytesReader::from(Vec::from(read_buf)),
+                            excess_read: BytesReader::from(read_buf),
                         },
                         require_alpn: false,
                     });
@@ -101,10 +109,11 @@ where
                 if capabilities.gssenc {
                     GSSENCResponse::UseGSSENC(UseGSSENC).write_to(&mut stream)?;
                     stream.flush()?;
-                    let (stream, read_buf, _) = stream.into_parts();
+                    let read_buf = stream.read_buffer().to_owned();
+                    let stream = stream.into_inner().ok().unwrap();
                     return Ok(NegotiatedEncryption::UseGSSENC(WithExcess {
                         stream,
-                        excess_read: BytesReader::from(Vec::from(read_buf)),
+                        excess_read: BytesReader::from(read_buf),
                     }));
                 } else {
                     GSSENCResponse::NoGSSENC(NoGSSENC).write_to(&mut stream)?;
@@ -147,7 +156,10 @@ where
     }
 }
 
-fn negotiate_protocol<S>(stream: &mut BufStream<S>, params: &mut StartupMessage) -> IoResult<()>
+fn negotiate_protocol<S>(
+    stream: &mut BufReaderWriter<S>,
+    params: &mut StartupMessage,
+) -> IoResult<()>
 where
     S: Read + Write,
 {
@@ -177,13 +189,19 @@ where
 }
 
 #[derive(Debug)]
-struct InternalSession<S> {
-    stream: BufStream<S>,
+struct InternalSession<S>
+where
+    S: Write,
+{
+    stream: BufReaderWriter<S>,
     // TODO: expose version and parameters
     params: StartupMessage,
 }
 
 #[derive(Debug)]
-pub struct Authentication<S> {
+pub struct Authentication<S>
+where
+    S: Write,
+{
     session: InternalSession<S>,
 }
