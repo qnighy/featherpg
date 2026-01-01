@@ -6,9 +6,7 @@ use std::{
 use crate::{
     ProtocolVersion,
     common::GetReadBuf,
-    message_common::{
-        Scanner, StreamError, StreamScanner, WireFormatError, WriteWireExt, read_streamed,
-    },
+    message_common::{ReadWireExt, WireFormatError, WriteWireExt},
 };
 
 /// A message sent by the client as the first message on a new connection.
@@ -47,6 +45,13 @@ impl From<CancelRequest> for InitialRequest {
 impl InitialRequest {
     const MAX_STARTUP_PACKET_LENGTH: usize = 10000;
 
+    pub fn write_to<W>(&self, writer: &mut W) -> IoResult<()>
+    where
+        W: Write + ?Sized,
+    {
+        writer.write_sized(|writer| self.write_body_to(writer))
+    }
+
     pub fn write_body_to<W>(&self, writer: &mut W) -> IoResult<()>
     where
         W: Write + ?Sized,
@@ -63,47 +68,24 @@ impl InitialRequest {
     where
         R: GetReadBuf + ?Sized,
     {
-        read_streamed(reader, |scanner| Self::try_read(scanner))
+        reader.read_sized(|reader| Self::read_body_from(reader))
     }
 
-    fn try_read(scanner: &mut StreamScanner<'_>) -> Result<Self, StreamError<WireFormatError>> {
-        let len = scanner
-            .read_u32()
-            .map_err(|e| e.map(|_| WireFormatError::StartupIncompleteLength))?
-            as usize;
-
-        if len < 4 {
-            return Err(StreamError::from(WireFormatError::StartupTooShort));
-        } else if len < 8 {
-            return Err(StreamError::from(WireFormatError::StartupIncompleteLength));
-        } else if len > Self::MAX_STARTUP_PACKET_LENGTH + 4 {
-            return Err(StreamError::from(WireFormatError::StartupTooLong));
-        }
-
-        let body = scanner
-            .read_bytes(len - 4)
-            .map_err(|e| e.map(|_| WireFormatError::StartupIncompleteBody))?;
-
-        let msg = Self::parse_body(body)?;
-
-        Ok(msg)
-    }
-
-    fn parse_body(body: &[u8]) -> Result<Self, WireFormatError> {
-        let mut scanner = Scanner::new(body);
-        let version = scanner
-            .read_version()
-            .map_err(|_| WireFormatError::StartupIncompleteVersion)?;
+    pub fn read_body_from<R>(reader: &mut R) -> IoResult<Self>
+    where
+        R: GetReadBuf + ?Sized,
+    {
+        let version = reader.read_version()?;
 
         match version {
-            SSLRequest::VERSION => Ok(SSLRequest::parse_with_version(scanner, version)?.into()),
+            SSLRequest::VERSION => Ok(SSLRequest::read_after_version(reader, version)?.into()),
             GSSENCRequest::VERSION => {
-                Ok(GSSENCRequest::parse_with_version(scanner, version)?.into())
+                Ok(GSSENCRequest::read_after_version(reader, version)?.into())
             }
             CancelRequest::VERSION => {
-                Ok(CancelRequest::parse_with_version(scanner, version)?.into())
+                Ok(CancelRequest::read_after_version(reader, version)?.into())
             }
-            _ => Ok(StartupMessage::parse_with_version(scanner, version)?.into()),
+            _ => Ok(StartupMessage::read_after_version(reader, version)?.into()),
         }
     }
 }
@@ -216,10 +198,10 @@ impl StartupMessage {
         Ok(())
     }
 
-    fn parse_with_version(
-        mut scanner: Scanner<'_>,
-        version: ProtocolVersion,
-    ) -> Result<Self, WireFormatError> {
+    fn read_after_version<R>(reader: &mut R, version: ProtocolVersion) -> IoResult<Self>
+    where
+        R: GetReadBuf + ?Sized,
+    {
         // See: backend_startup.c, ProcessStartupPacket
 
         let mut database_name = None;
@@ -235,13 +217,13 @@ impl StartupMessage {
         let mut guc_options = Vec::new();
 
         loop {
-            let name = scanner
+            let name = reader
                 .read_cstring()
                 .map_err(|_| WireFormatError::StartupPacketUnterminatedString)?;
             if name.is_empty() {
                 break;
             }
-            let value = scanner
+            let value = reader
                 .read_cstring()
                 .map_err(|_| WireFormatError::StartupPacketUnterminatedString)?;
 
@@ -257,7 +239,8 @@ impl StartupMessage {
                         None => {
                             return Err(WireFormatError::InvalidReplicationParameter {
                                 value: value.to_string_lossy().into_owned(),
-                            });
+                            }
+                            .into());
                         }
                     },
                 },
@@ -268,7 +251,7 @@ impl StartupMessage {
             }
         }
 
-        scanner
+        reader
             .read_eof()
             .map_err(|_| WireFormatError::StartupPacketExtraBytes)?;
 
@@ -277,7 +260,7 @@ impl StartupMessage {
         }
 
         let Some(user_name) = user_name else {
-            return Err(WireFormatError::MissingUserName);
+            return Err(WireFormatError::MissingUserName.into());
         };
 
         if database_name.as_ref().is_some_and(|s| s.is_empty()) {
@@ -316,17 +299,17 @@ impl SSLRequest {
         Ok(())
     }
 
-    fn parse_with_version(
-        scanner: Scanner<'_>,
-        version: ProtocolVersion,
-    ) -> Result<Self, WireFormatError> {
+    fn read_after_version<R>(reader: &mut R, version: ProtocolVersion) -> IoResult<Self>
+    where
+        R: GetReadBuf + ?Sized,
+    {
         // See: backend_startup.c, ProcessStartupPacket
 
         assert_eq!(version, Self::VERSION);
 
         // Subtle difference from PostgreSQL:
         // PostgreSQL does not check EOF here, but we do.
-        scanner
+        reader
             .read_eof()
             .map_err(|_| WireFormatError::SSLRequestExtraBytes)?;
 
@@ -352,17 +335,17 @@ impl GSSENCRequest {
         Ok(())
     }
 
-    fn parse_with_version(
-        scanner: Scanner<'_>,
-        version: ProtocolVersion,
-    ) -> Result<Self, WireFormatError> {
+    fn read_after_version<R>(reader: &mut R, version: ProtocolVersion) -> IoResult<Self>
+    where
+        R: GetReadBuf + ?Sized,
+    {
         // See: backend_startup.c, ProcessStartupPacket
 
         assert_eq!(version, Self::VERSION);
 
         // Subtle difference from PostgreSQL:
         // PostgreSQL does not check EOF here, but we do.
-        scanner
+        reader
             .read_eof()
             .map_err(|_| WireFormatError::GSSENCRequestExtraBytes)?;
 
@@ -413,26 +396,27 @@ impl CancelRequest {
         Ok(())
     }
 
-    fn parse_with_version(
-        mut scanner: Scanner<'_>,
-        version: ProtocolVersion,
-    ) -> Result<Self, WireFormatError> {
+    fn read_after_version<R>(reader: &mut R, version: ProtocolVersion) -> IoResult<Self>
+    where
+        R: GetReadBuf + ?Sized,
+    {
         // See: backend_startup.c, ProcessCancelRequestPacket
 
         assert_eq!(version, Self::VERSION);
 
-        let process_id = scanner
+        let process_id = reader
             .read_u32()
             .map_err(|_| WireFormatError::CancelRequestIncompleteProcessId)?
             as i32;
-        let secret_key = scanner.read_remaining_bytes();
+        let secret_key = reader.read_remaining_bytes()?;
         if secret_key.is_empty() {
-            return Err(WireFormatError::CancelRequestMissingSecretKey);
+            return Err(WireFormatError::CancelRequestMissingSecretKey.into());
         } else if secret_key.len() > Self::MAX_SECRET_KEY_LENGTH {
             return Err(WireFormatError::CancelRequestSecretKeyTooLong {
                 length: secret_key.len(),
                 max_length: Self::MAX_SECRET_KEY_LENGTH,
-            });
+            }
+            .into());
         }
 
         Ok(CancelRequest {
@@ -475,10 +459,15 @@ pub enum ReplicationMode {
 mod tests {
     use super::*;
 
-    fn startup_bytes(msg: &InitialRequest) -> IoResult<Vec<u8>> {
+    fn to_bytes(msg: &InitialRequest) -> IoResult<Vec<u8>> {
         let mut buf = Vec::new();
         msg.write_body_to(&mut buf)?;
         Ok(buf)
+    }
+
+    fn from_bytes(data: &[u8]) -> IoResult<InitialRequest> {
+        let mut reader = data;
+        InitialRequest::read_body_from(&mut reader)
     }
 
     #[test]
@@ -494,7 +483,7 @@ mod tests {
         }
         .into();
         assert_eq!(
-            startup_bytes(&msg).unwrap(),
+            to_bytes(&msg).unwrap(),
             b"\x00\x03\x00\x00user\0testuser\0database\0testdb\0\0"
         );
     }
@@ -512,7 +501,7 @@ mod tests {
         }
         .into();
         assert_eq!(
-            startup_bytes(&msg).unwrap(),
+            to_bytes(&msg).unwrap(),
             b"\x00\x03\x00\x00user\0testuser\0database\0testdb\0options\0-S 8192\0\0"
         );
     }
@@ -530,7 +519,7 @@ mod tests {
         }
         .into();
         assert_eq!(
-            startup_bytes(&msg).unwrap(),
+            to_bytes(&msg).unwrap(),
             b"\x00\x03\x00\x00user\0testuser\0database\0testdb\0replication\0database\0\0"
         );
     }
@@ -548,7 +537,7 @@ mod tests {
         }
         .into();
         assert_eq!(
-            startup_bytes(&msg).unwrap(),
+            to_bytes(&msg).unwrap(),
             b"\x00\x03\x00\x00user\0testuser\0database\0testdb\0replication\0true\0\0"
         );
     }
@@ -575,7 +564,7 @@ mod tests {
         }
         .into();
         assert_eq!(
-            startup_bytes(&msg).unwrap(),
+            to_bytes(&msg).unwrap(),
             b"\x00\x03\x00\x00user\0testuser\0database\0testdb\0_pq_.foo\0bar\0_pq_.baz\0qux\0\0"
         );
     }
@@ -602,7 +591,7 @@ mod tests {
         }
         .into();
         assert_eq!(
-            startup_bytes(&msg).unwrap(),
+            to_bytes(&msg).unwrap(),
             b"\x00\x03\x00\x00user\0testuser\0database\0testdb\0search_path\0public,custom\0application_name\0myapp\0\0"
         );
     }
@@ -610,7 +599,7 @@ mod tests {
     #[test]
     fn test_startup_message_parsing_simple() {
         let data = &b"\x00\x03\x00\x00user\0testuser\0database\0testdb\0\0"[..];
-        let msg = InitialRequest::parse_body(data).unwrap();
+        let msg = from_bytes(data).unwrap();
 
         assert_eq!(
             msg,
@@ -630,7 +619,7 @@ mod tests {
     #[test]
     fn test_startup_message_parsing_missing_database_fallback() {
         let data = &b"\x00\x03\x00\x00user\0testuser\0\0"[..];
-        let msg = InitialRequest::parse_body(data).unwrap();
+        let msg = from_bytes(data).unwrap();
 
         assert_eq!(
             msg,
@@ -650,7 +639,7 @@ mod tests {
     #[test]
     fn test_startup_message_parsing_empty_database_fallback() {
         let data = &b"\x00\x03\x00\x00user\0testuser\0database\0\0\0"[..];
-        let msg = InitialRequest::parse_body(data).unwrap();
+        let msg = from_bytes(data).unwrap();
 
         assert_eq!(
             msg,
@@ -670,7 +659,7 @@ mod tests {
     #[test]
     fn test_startup_message_parsing_cmdline_options() {
         let data = &b"\x00\x03\x00\x00user\0testuser\0database\0testdb\0options\0-S 8192\0\0"[..];
-        let msg = InitialRequest::parse_body(data).unwrap();
+        let msg = from_bytes(data).unwrap();
 
         assert_eq!(
             msg,
@@ -691,7 +680,7 @@ mod tests {
     fn test_startup_message_parsing_replication_database() {
         let data =
             &b"\x00\x03\x00\x00user\0testuser\0database\0testdb\0replication\0database\0\0"[..];
-        let msg = InitialRequest::parse_body(data).unwrap();
+        let msg = from_bytes(data).unwrap();
 
         assert_eq!(
             msg,
@@ -711,7 +700,7 @@ mod tests {
     #[test]
     fn test_startup_message_parsing_replication_true() {
         let data = &b"\x00\x03\x00\x00user\0testuser\0database\0testdb\0replication\0true\0\0"[..];
-        let msg = InitialRequest::parse_body(data).unwrap();
+        let msg = from_bytes(data).unwrap();
 
         assert_eq!(
             msg,
@@ -731,7 +720,7 @@ mod tests {
     #[test]
     fn test_startup_message_parsing_replication_false() {
         let data = &b"\x00\x03\x00\x00user\0testuser\0database\0testdb\0replication\0false\0\0"[..];
-        let msg = InitialRequest::parse_body(data).unwrap();
+        let msg = from_bytes(data).unwrap();
 
         assert_eq!(
             msg,
@@ -753,7 +742,7 @@ mod tests {
         let data =
             &b"\x00\x03\x00\x00user\0testuser\0database\0testdb\0_pq_.foo\0bar\0_pq_.baz\0qux\0\0"
                 [..];
-        let msg = InitialRequest::parse_body(data).unwrap();
+        let msg = from_bytes(data).unwrap();
 
         assert_eq!(
             msg,
@@ -783,7 +772,7 @@ mod tests {
     fn test_startup_message_parsing_guc_options() {
         let data = &b"\x00\x03\x00\x00user\0testuser\0database\0testdb\0work_mem\04096\0search_path\0public\0\0"
             [..];
-        let msg = InitialRequest::parse_body(data).unwrap();
+        let msg = from_bytes(data).unwrap();
 
         assert_eq!(
             msg,
@@ -812,7 +801,7 @@ mod tests {
     #[test]
     fn test_startup_message_parse_error_unterminated_name() {
         let data = &b"\x00\x03\x00\x00user"[..];
-        let err = InitialRequest::parse_body(data).unwrap_err();
+        let err = from_bytes(data).unwrap_err();
 
         assert_eq!(
             err.to_string(),
@@ -823,7 +812,7 @@ mod tests {
     #[test]
     fn test_startup_message_parse_error_unterminated_value() {
         let data = &b"\x00\x03\x00\x00user\0testuser"[..];
-        let err = InitialRequest::parse_body(data).unwrap_err();
+        let err = from_bytes(data).unwrap_err();
 
         assert_eq!(
             err.to_string(),
@@ -834,7 +823,7 @@ mod tests {
     #[test]
     fn test_startup_message_parse_error_extra_bytes() {
         let data = &b"\x00\x03\x00\x00user\0testuser\0database\0testdb\0\0extra"[..];
-        let err = InitialRequest::parse_body(data).unwrap_err();
+        let err = from_bytes(data).unwrap_err();
 
         assert_eq!(
             err.to_string(),
@@ -845,7 +834,7 @@ mod tests {
     #[test]
     fn test_startup_message_parse_error_missing_username() {
         let data = &b"\x00\x03\x00\x00database\0testdb\0\0"[..];
-        let err = InitialRequest::parse_body(data).unwrap_err();
+        let err = from_bytes(data).unwrap_err();
 
         assert_eq!(
             err.to_string(),
@@ -856,7 +845,7 @@ mod tests {
     #[test]
     fn test_startup_message_parse_error_empty_username() {
         let data = &b"\x00\x03\x00\x00user\0\0database\0testdb\0\0"[..];
-        let err = InitialRequest::parse_body(data).unwrap_err();
+        let err = from_bytes(data).unwrap_err();
 
         assert_eq!(
             err.to_string(),
@@ -869,14 +858,14 @@ mod tests {
         let msg = SSLRequest.into();
 
         // 0x04D2 = 1234, 0x162F = 5679
-        assert_eq!(startup_bytes(&msg).unwrap(), b"\x04\xD2\x16\x2F");
+        assert_eq!(to_bytes(&msg).unwrap(), b"\x04\xD2\x16\x2F");
     }
 
     #[test]
     fn test_ssl_request_parsing() {
         // 0x04D2 = 1234, 0x162F = 5679
         let data = &b"\x04\xD2\x16\x2F"[..];
-        let msg = InitialRequest::parse_body(data).unwrap();
+        let msg = from_bytes(data).unwrap();
 
         assert_eq!(msg, SSLRequest.into());
     }
@@ -885,7 +874,7 @@ mod tests {
     fn test_ssl_request_parse_error_extra_bytes() {
         // 0x04D2 = 1234, 0x162F = 5679
         let data = &b"\x04\xD2\x16\x2Ffoo"[..];
-        let err = InitialRequest::parse_body(data).unwrap_err();
+        let err = from_bytes(data).unwrap_err();
 
         assert_eq!(
             err.to_string(),
@@ -898,14 +887,14 @@ mod tests {
         let msg = GSSENCRequest.into();
 
         // 0x04D2 = 1234, 0x1630 = 5680
-        assert_eq!(startup_bytes(&msg).unwrap(), b"\x04\xD2\x16\x30");
+        assert_eq!(to_bytes(&msg).unwrap(), b"\x04\xD2\x16\x30");
     }
 
     #[test]
     fn test_gssenc_request_parsing() {
         // 0x04D2 = 1234, 0x1630 = 5680
         let data = &b"\x04\xD2\x16\x30"[..];
-        let msg = InitialRequest::parse_body(data).unwrap();
+        let msg = from_bytes(data).unwrap();
 
         assert_eq!(msg, GSSENCRequest.into());
     }
@@ -914,7 +903,7 @@ mod tests {
     fn test_gssenc_request_parse_error_extra_bytes() {
         // 0x04D2 = 1234, 0x1630 = 5680
         let data = &b"\x04\xD2\x16\x30foo"[..];
-        let err = InitialRequest::parse_body(data).unwrap_err();
+        let err = from_bytes(data).unwrap_err();
 
         assert_eq!(
             err.to_string(),
@@ -931,7 +920,7 @@ mod tests {
         .into();
         // 0x04D2 = 1234, 0x162E = 5678
         assert_eq!(
-            startup_bytes(&msg).unwrap(),
+            to_bytes(&msg).unwrap(),
             b"\x04\xD2\x16\x2E\x00\x00\x30\x39secretkeydata"
         );
     }
@@ -945,7 +934,7 @@ mod tests {
         .into();
         // 0x04D2 = 1234, 0x162E = 5678
         assert_eq!(
-            startup_bytes(&msg).unwrap(),
+            to_bytes(&msg).unwrap(),
             b"\x04\xD2\x16\x2E\x00\x00\x30\x39x"
         );
     }
@@ -958,7 +947,7 @@ mod tests {
         }
         .into();
         // 0x04D2 = 1234, 0x162E = 5678
-        assert_eq!(startup_bytes(&msg).unwrap(), {
+        assert_eq!(to_bytes(&msg).unwrap(), {
             let mut v = b"\x04\xD2\x16\x2E\x00\x00\x30\x39".to_vec();
             v.extend(b"a".repeat(256));
             v
@@ -969,7 +958,7 @@ mod tests {
     fn test_cancel_request_parsing_simple() {
         // 0x04D2 = 1234, 0x162E = 5678
         let data = &b"\x04\xD2\x16\x2E\x00\x00\x30\x39secretkeydata"[..];
-        let msg = InitialRequest::parse_body(data).unwrap();
+        let msg = from_bytes(data).unwrap();
 
         assert_eq!(
             msg,
@@ -985,7 +974,7 @@ mod tests {
     fn test_cancel_request_parsing_min_length() {
         // 0x04D2 = 1234, 0x162E = 5678
         let data = &b"\x04\xD2\x16\x2E\x00\x00\x30\x39x"[..];
-        let msg = InitialRequest::parse_body(data).unwrap();
+        let msg = from_bytes(data).unwrap();
 
         assert_eq!(
             msg,
@@ -1002,7 +991,7 @@ mod tests {
         // 0x04D2 = 1234, 0x162E = 5678
         let mut data = b"\x04\xD2\x16\x2E\x00\x00\x30\x39".to_vec();
         data.extend(b"a".repeat(256));
-        let msg = InitialRequest::parse_body(&data).unwrap();
+        let msg = from_bytes(&data).unwrap();
 
         assert_eq!(
             msg,
@@ -1018,7 +1007,7 @@ mod tests {
     fn test_cancel_request_parse_error_incomplete_process_id() {
         // 0x04D2 = 1234, 0x162E = 5678
         let data = &b"\x04\xD2\x16\x2E\x00\x00\x30"[..];
-        let err = InitialRequest::parse_body(data).unwrap_err();
+        let err = from_bytes(data).unwrap_err();
 
         assert_eq!(err.to_string(), "invalid length of cancel request packet");
     }
@@ -1027,7 +1016,7 @@ mod tests {
     fn test_cancel_request_parse_error_missing_secret_key() {
         // 0x04D2 = 1234, 0x162E = 5678
         let data = &b"\x04\xD2\x16\x2E\x00\x00\x30\x39"[..];
-        let err = InitialRequest::parse_body(data).unwrap_err();
+        let err = from_bytes(data).unwrap_err();
 
         assert_eq!(
             err.to_string(),
@@ -1040,7 +1029,7 @@ mod tests {
         // 0x04D2 = 1234, 0x162E = 5678
         let mut data = b"\x04\xD2\x16\x2E\x00\x00\x30\x39".to_vec();
         data.extend(b"a".repeat(257));
-        let err = InitialRequest::parse_body(&data).unwrap_err();
+        let err = from_bytes(&data).unwrap_err();
 
         assert_eq!(
             err.to_string(),
