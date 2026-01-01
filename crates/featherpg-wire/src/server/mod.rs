@@ -8,9 +8,9 @@ use crate::{
     errors::DiagnosticMessage,
     io_util::BufStream,
     message::{
-        CancelRequest, StartupLikeMessage, StartupMessage, StartupParameter, WireMessage, WireState,
+        CancelRequest, GSSENCResponse, NoGSSENC, NoSSL, SSLResponse, StartupLikeMessage,
+        StartupMessage, UseGSSENC, UseSSL, WireMessage, WireState,
     },
-    message_common::WriteWireExt,
 };
 
 const TLS_HANDSHAKE_SIGNATURE: u8 = 0x16;
@@ -82,7 +82,7 @@ where
         match msg {
             StartupLikeMessage::SSLRequest(_) => {
                 if capabilities.ssl {
-                    stream.write_u8(b'S')?;
+                    SSLResponse::UseSSL(UseSSL).write_to(&mut stream)?;
                     stream.flush()?;
                     let (stream, read_buf, _) = stream.into_parts();
                     return Ok(NegotiatedEncryption::UseSSL {
@@ -93,14 +93,14 @@ where
                         require_alpn: false,
                     });
                 } else {
-                    stream.write_u8(b'N')?;
+                    SSLResponse::NoSSL(NoSSL).write_to(&mut stream)?;
                     stream.flush()?;
                     msg = StartupLikeMessage::read_from(&mut stream)?;
                 }
             }
             StartupLikeMessage::GSSENCRequest(_) => {
                 if capabilities.gssenc {
-                    stream.write_u8(b'G')?;
+                    GSSENCResponse::UseGSSENC(UseGSSENC).write_to(&mut stream)?;
                     stream.flush()?;
                     let (stream, read_buf, _) = stream.into_parts();
                     return Ok(NegotiatedEncryption::UseGSSENC(WithExcess {
@@ -108,7 +108,7 @@ where
                         excess_read: BytesReader::from(Vec::from(read_buf)),
                     }));
                 } else {
-                    stream.write_u8(b'N')?;
+                    GSSENCResponse::NoGSSENC(NoGSSENC).write_to(&mut stream)?;
                     stream.flush()?;
                     msg = StartupLikeMessage::read_from(&mut stream)?;
                 }
@@ -127,7 +127,6 @@ where
             StartupLikeMessage::CancelRequest(msg) => {
                 return Ok(NegotiatedEncryption::Cleartext(ConnectionKind::Cancel(msg)));
             }
-            _ => unreachable!("Impossible due to parser state: {:?}", msg),
         }
     }
 }

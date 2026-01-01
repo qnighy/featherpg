@@ -6,25 +6,25 @@ use std::{
 use crate::{message::ErrorResponse, message_common::WireFormatError};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum GSSENCResponseMessage {
+pub enum GSSENCResponse {
     UseGSSENC(UseGSSENC),
     NoGSSENC(NoGSSENC),
     ErrorResponse(ErrorResponse),
 }
 
-impl GSSENCResponseMessage {
+impl GSSENCResponse {
     pub fn write_to<W>(&self, writer: &mut W) -> IoResult<()>
     where
         W: Write,
     {
         match self {
-            GSSENCResponseMessage::UseGSSENC(_) => {
+            GSSENCResponse::UseGSSENC(_) => {
                 writer.write_all(&[UseGSSENC::TYPE_BYTE])?;
             }
-            GSSENCResponseMessage::NoGSSENC(_) => {
+            GSSENCResponse::NoGSSENC(_) => {
                 writer.write_all(&[NoGSSENC::TYPE_BYTE])?;
             }
-            GSSENCResponseMessage::ErrorResponse(err) => {
+            GSSENCResponse::ErrorResponse(err) => {
                 writer.write_all(&[ErrorResponse::TYPE_BYTE])?;
                 err.write_to(writer)?;
             }
@@ -40,11 +40,11 @@ impl GSSENCResponseMessage {
         reader.read_exact(slice::from_mut(&mut type_byte))?;
 
         match type_byte {
-            UseGSSENC::TYPE_BYTE => Ok(GSSENCResponseMessage::UseGSSENC(UseGSSENC)),
-            NoGSSENC::TYPE_BYTE => Ok(GSSENCResponseMessage::NoGSSENC(NoGSSENC)),
+            UseGSSENC::TYPE_BYTE => Ok(GSSENCResponse::UseGSSENC(UseGSSENC)),
+            NoGSSENC::TYPE_BYTE => Ok(GSSENCResponse::NoGSSENC(NoGSSENC)),
             ErrorResponse::TYPE_BYTE => {
                 let error = ErrorResponse::read_from(reader)?;
-                Ok(GSSENCResponseMessage::ErrorResponse(error))
+                Ok(GSSENCResponse::ErrorResponse(error))
             }
             _ => Err(WireFormatError::InvalidGSSENCResponseTypeByte { type_byte }.into()),
         }
