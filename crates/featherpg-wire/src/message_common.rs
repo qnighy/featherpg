@@ -387,6 +387,11 @@ pub(crate) enum WireFormatError {
     #[error("incomplete message body")]
     IncompleteMessageBody,
 
+    #[error("unknown type byte for SSL response: {type_byte:02X}")]
+    InvalidSSLResponseTypeByte { type_byte: u8 },
+    #[error("unknown type byte for GSSENC response: {type_byte:02X}")]
+    InvalidGSSENCResponseTypeByte { type_byte: u8 },
+
     #[error("unknown type byte: {type_byte:02X}")]
     UnknownTypeByte { type_byte: u8 },
     #[error("unknown authentication type: {auth_type}")]

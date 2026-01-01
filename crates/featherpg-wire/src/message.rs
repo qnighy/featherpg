@@ -6,6 +6,8 @@ use std::io::{
 };
 
 pub use crate::message::diagnostics::*;
+pub use crate::message::gssenc_response::*;
+pub use crate::message::ssl_response::*;
 pub use crate::message::startup::*;
 use crate::{
     errors::DiagnosticMessage,
@@ -14,6 +16,8 @@ use crate::{
 };
 
 mod diagnostics;
+mod gssenc_response;
+mod ssl_response;
 mod startup;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
