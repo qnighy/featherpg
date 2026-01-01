@@ -31,6 +31,7 @@ impl ErrorResponse {
     where
         W: Write + ?Sized,
     {
+        writer.write_u8(Self::TYPE_BYTE)?;
         let mut buf = Vec::new();
         self.write_body_to(&mut buf)?;
         writer.write_usize32(buf.len() + 4)?;

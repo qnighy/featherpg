@@ -3,7 +3,11 @@ use std::{
     slice,
 };
 
-use crate::{common::GetReadBuf, message::ErrorResponse, message_common::WireFormatError};
+use crate::{
+    common::GetReadBuf,
+    message::ErrorResponse,
+    message_common::{WireFormatError, WriteWireExt},
+};
 
 /// A response to a GSSENCRequest message, sent by the server.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -19,14 +23,13 @@ impl GSSENCResponse {
         W: Write,
     {
         match self {
-            GSSENCResponse::UseGSSENC(_) => {
-                writer.write_all(&[UseGSSENC::TYPE_BYTE])?;
+            GSSENCResponse::UseGSSENC(msg) => {
+                msg.write_to(writer)?;
             }
-            GSSENCResponse::NoGSSENC(_) => {
-                writer.write_all(&[NoGSSENC::TYPE_BYTE])?;
+            GSSENCResponse::NoGSSENC(msg) => {
+                msg.write_to(writer)?;
             }
             GSSENCResponse::ErrorResponse(err) => {
-                writer.write_all(&[ErrorResponse::TYPE_BYTE])?;
                 err.write_to(writer)?;
             }
         }
@@ -61,6 +64,14 @@ pub struct UseGSSENC;
 
 impl UseGSSENC {
     pub const TYPE_BYTE: u8 = b'G';
+
+    pub fn write_to<W>(&self, writer: &mut W) -> IoResult<()>
+    where
+        W: Write + ?Sized,
+    {
+        writer.write_u8(Self::TYPE_BYTE)?;
+        Ok(())
+    }
 }
 
 /// Indicates that the server is not willing to switch to GSSENC.
@@ -71,4 +82,12 @@ pub struct NoGSSENC;
 
 impl NoGSSENC {
     pub const TYPE_BYTE: u8 = b'N';
+
+    pub fn write_to<W>(&self, writer: &mut W) -> IoResult<()>
+    where
+        W: Write + ?Sized,
+    {
+        writer.write_u8(Self::TYPE_BYTE)?;
+        Ok(())
+    }
 }

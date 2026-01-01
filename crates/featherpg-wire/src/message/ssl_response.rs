@@ -3,7 +3,11 @@ use std::{
     slice,
 };
 
-use crate::{common::GetReadBuf, message::ErrorResponse, message_common::WireFormatError};
+use crate::{
+    common::GetReadBuf,
+    message::ErrorResponse,
+    message_common::{WireFormatError, WriteWireExt},
+};
 
 /// A response to an SSLRequest message, sent by the server.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -16,17 +20,16 @@ pub enum SSLResponse {
 impl SSLResponse {
     pub fn write_to<W>(&self, writer: &mut W) -> IoResult<()>
     where
-        W: Write,
+        W: Write + ?Sized,
     {
         match self {
-            SSLResponse::UseSSL(_) => {
-                writer.write_all(&[UseSSL::TYPE_BYTE])?;
+            SSLResponse::UseSSL(msg) => {
+                msg.write_to(writer)?;
             }
-            SSLResponse::NoSSL(_) => {
-                writer.write_all(&[NoSSL::TYPE_BYTE])?;
+            SSLResponse::NoSSL(msg) => {
+                msg.write_to(writer)?;
             }
             SSLResponse::ErrorResponse(err) => {
-                writer.write_all(&[ErrorResponse::TYPE_BYTE])?;
                 err.write_to(writer)?;
             }
         }
@@ -61,6 +64,14 @@ pub struct UseSSL;
 
 impl UseSSL {
     pub const TYPE_BYTE: u8 = b'S';
+
+    pub fn write_to<W>(&self, writer: &mut W) -> IoResult<()>
+    where
+        W: Write + ?Sized,
+    {
+        writer.write_u8(Self::TYPE_BYTE)?;
+        Ok(())
+    }
 }
 
 /// Indicates that the server is not willing to switch to SSL/TLS.
@@ -71,4 +82,12 @@ pub struct NoSSL;
 
 impl NoSSL {
     pub const TYPE_BYTE: u8 = b'N';
+
+    pub fn write_to<W>(&self, writer: &mut W) -> IoResult<()>
+    where
+        W: Write + ?Sized,
+    {
+        writer.write_u8(Self::TYPE_BYTE)?;
+        Ok(())
+    }
 }
