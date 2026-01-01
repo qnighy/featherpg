@@ -55,7 +55,7 @@ impl GSSENCResponse {
 /// Indicates that the server is willing to switch to GSSENC.
 ///
 /// Next state: connection is upgraded to GSSENC,
-///             then continue with StartupMessage (client active)
+///             then continue with InitialRequest (client active)
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct UseGSSENC;
 
@@ -65,7 +65,7 @@ impl UseGSSENC {
 
 /// Indicates that the server is not willing to switch to GSSENC.
 ///
-/// Next state: continue with StartupMessage (client active)
+/// Next state: continue with InitialRequest (client active)
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct NoGSSENC;
 

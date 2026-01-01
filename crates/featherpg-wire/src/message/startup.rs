@@ -12,38 +12,38 @@ use crate::{
 
 /// A message sent by the client as the first message on a new connection.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum StartupLikeMessage {
-    Startup(StartupMessage),
+pub enum InitialRequest {
+    StartupMessage(StartupMessage),
     SSLRequest(SSLRequest),
     GSSENCRequest(GSSENCRequest),
     CancelRequest(CancelRequest),
 }
 
-impl From<StartupMessage> for StartupLikeMessage {
+impl From<StartupMessage> for InitialRequest {
     fn from(msg: StartupMessage) -> Self {
-        StartupLikeMessage::Startup(msg)
+        InitialRequest::StartupMessage(msg)
     }
 }
 
-impl From<SSLRequest> for StartupLikeMessage {
+impl From<SSLRequest> for InitialRequest {
     fn from(msg: SSLRequest) -> Self {
-        StartupLikeMessage::SSLRequest(msg)
+        InitialRequest::SSLRequest(msg)
     }
 }
 
-impl From<GSSENCRequest> for StartupLikeMessage {
+impl From<GSSENCRequest> for InitialRequest {
     fn from(msg: GSSENCRequest) -> Self {
-        StartupLikeMessage::GSSENCRequest(msg)
+        InitialRequest::GSSENCRequest(msg)
     }
 }
 
-impl From<CancelRequest> for StartupLikeMessage {
+impl From<CancelRequest> for InitialRequest {
     fn from(msg: CancelRequest) -> Self {
-        StartupLikeMessage::CancelRequest(msg)
+        InitialRequest::CancelRequest(msg)
     }
 }
 
-impl StartupLikeMessage {
+impl InitialRequest {
     const MAX_STARTUP_PACKET_LENGTH: usize = 10000;
 
     pub fn write_body_to<W>(&self, writer: &mut W) -> IoResult<()>
@@ -51,10 +51,10 @@ impl StartupLikeMessage {
         W: Write + ?Sized,
     {
         match self {
-            StartupLikeMessage::Startup(msg) => msg.write_body_to(writer),
-            StartupLikeMessage::SSLRequest(msg) => msg.write_body_to(writer),
-            StartupLikeMessage::GSSENCRequest(msg) => msg.write_body_to(writer),
-            StartupLikeMessage::CancelRequest(msg) => msg.write_body_to(writer),
+            InitialRequest::StartupMessage(msg) => msg.write_body_to(writer),
+            InitialRequest::SSLRequest(msg) => msg.write_body_to(writer),
+            InitialRequest::GSSENCRequest(msg) => msg.write_body_to(writer),
+            InitialRequest::CancelRequest(msg) => msg.write_body_to(writer),
         }
     }
 
@@ -474,7 +474,7 @@ pub enum ReplicationMode {
 mod tests {
     use super::*;
 
-    fn startup_bytes(msg: &StartupLikeMessage) -> IoResult<Vec<u8>> {
+    fn startup_bytes(msg: &InitialRequest) -> IoResult<Vec<u8>> {
         let mut buf = Vec::new();
         msg.write_body_to(&mut buf)?;
         Ok(buf)
@@ -609,7 +609,7 @@ mod tests {
     #[test]
     fn test_startup_message_parsing_simple() {
         let data = &b"\x00\x03\x00\x00user\0testuser\0database\0testdb\0\0"[..];
-        let msg = StartupLikeMessage::parse_body(data).unwrap();
+        let msg = InitialRequest::parse_body(data).unwrap();
 
         assert_eq!(
             msg,
@@ -629,7 +629,7 @@ mod tests {
     #[test]
     fn test_startup_message_parsing_missing_database_fallback() {
         let data = &b"\x00\x03\x00\x00user\0testuser\0\0"[..];
-        let msg = StartupLikeMessage::parse_body(data).unwrap();
+        let msg = InitialRequest::parse_body(data).unwrap();
 
         assert_eq!(
             msg,
@@ -649,7 +649,7 @@ mod tests {
     #[test]
     fn test_startup_message_parsing_empty_database_fallback() {
         let data = &b"\x00\x03\x00\x00user\0testuser\0database\0\0\0"[..];
-        let msg = StartupLikeMessage::parse_body(data).unwrap();
+        let msg = InitialRequest::parse_body(data).unwrap();
 
         assert_eq!(
             msg,
@@ -669,7 +669,7 @@ mod tests {
     #[test]
     fn test_startup_message_parsing_cmdline_options() {
         let data = &b"\x00\x03\x00\x00user\0testuser\0database\0testdb\0options\0-S 8192\0\0"[..];
-        let msg = StartupLikeMessage::parse_body(data).unwrap();
+        let msg = InitialRequest::parse_body(data).unwrap();
 
         assert_eq!(
             msg,
@@ -690,7 +690,7 @@ mod tests {
     fn test_startup_message_parsing_replication_database() {
         let data =
             &b"\x00\x03\x00\x00user\0testuser\0database\0testdb\0replication\0database\0\0"[..];
-        let msg = StartupLikeMessage::parse_body(data).unwrap();
+        let msg = InitialRequest::parse_body(data).unwrap();
 
         assert_eq!(
             msg,
@@ -710,7 +710,7 @@ mod tests {
     #[test]
     fn test_startup_message_parsing_replication_true() {
         let data = &b"\x00\x03\x00\x00user\0testuser\0database\0testdb\0replication\0true\0\0"[..];
-        let msg = StartupLikeMessage::parse_body(data).unwrap();
+        let msg = InitialRequest::parse_body(data).unwrap();
 
         assert_eq!(
             msg,
@@ -730,7 +730,7 @@ mod tests {
     #[test]
     fn test_startup_message_parsing_replication_false() {
         let data = &b"\x00\x03\x00\x00user\0testuser\0database\0testdb\0replication\0false\0\0"[..];
-        let msg = StartupLikeMessage::parse_body(data).unwrap();
+        let msg = InitialRequest::parse_body(data).unwrap();
 
         assert_eq!(
             msg,
@@ -752,7 +752,7 @@ mod tests {
         let data =
             &b"\x00\x03\x00\x00user\0testuser\0database\0testdb\0_pq_.foo\0bar\0_pq_.baz\0qux\0\0"
                 [..];
-        let msg = StartupLikeMessage::parse_body(data).unwrap();
+        let msg = InitialRequest::parse_body(data).unwrap();
 
         assert_eq!(
             msg,
@@ -782,7 +782,7 @@ mod tests {
     fn test_startup_message_parsing_guc_options() {
         let data = &b"\x00\x03\x00\x00user\0testuser\0database\0testdb\0work_mem\04096\0search_path\0public\0\0"
             [..];
-        let msg = StartupLikeMessage::parse_body(data).unwrap();
+        let msg = InitialRequest::parse_body(data).unwrap();
 
         assert_eq!(
             msg,
@@ -811,7 +811,7 @@ mod tests {
     #[test]
     fn test_startup_message_parse_error_unterminated_name() {
         let data = &b"\x00\x03\x00\x00user"[..];
-        let err = StartupLikeMessage::parse_body(data).unwrap_err();
+        let err = InitialRequest::parse_body(data).unwrap_err();
 
         assert_eq!(
             err.to_string(),
@@ -822,7 +822,7 @@ mod tests {
     #[test]
     fn test_startup_message_parse_error_unterminated_value() {
         let data = &b"\x00\x03\x00\x00user\0testuser"[..];
-        let err = StartupLikeMessage::parse_body(data).unwrap_err();
+        let err = InitialRequest::parse_body(data).unwrap_err();
 
         assert_eq!(
             err.to_string(),
@@ -833,7 +833,7 @@ mod tests {
     #[test]
     fn test_startup_message_parse_error_extra_bytes() {
         let data = &b"\x00\x03\x00\x00user\0testuser\0database\0testdb\0\0extra"[..];
-        let err = StartupLikeMessage::parse_body(data).unwrap_err();
+        let err = InitialRequest::parse_body(data).unwrap_err();
 
         assert_eq!(
             err.to_string(),
@@ -844,7 +844,7 @@ mod tests {
     #[test]
     fn test_startup_message_parse_error_missing_username() {
         let data = &b"\x00\x03\x00\x00database\0testdb\0\0"[..];
-        let err = StartupLikeMessage::parse_body(data).unwrap_err();
+        let err = InitialRequest::parse_body(data).unwrap_err();
 
         assert_eq!(
             err.to_string(),
@@ -855,7 +855,7 @@ mod tests {
     #[test]
     fn test_startup_message_parse_error_empty_username() {
         let data = &b"\x00\x03\x00\x00user\0\0database\0testdb\0\0"[..];
-        let err = StartupLikeMessage::parse_body(data).unwrap_err();
+        let err = InitialRequest::parse_body(data).unwrap_err();
 
         assert_eq!(
             err.to_string(),
@@ -875,7 +875,7 @@ mod tests {
     fn test_ssl_request_parsing() {
         // 0x04D2 = 1234, 0x162F = 5679
         let data = &b"\x04\xD2\x16\x2F"[..];
-        let msg = StartupLikeMessage::parse_body(data).unwrap();
+        let msg = InitialRequest::parse_body(data).unwrap();
 
         assert_eq!(msg, SSLRequest.into());
     }
@@ -884,7 +884,7 @@ mod tests {
     fn test_ssl_request_parse_error_extra_bytes() {
         // 0x04D2 = 1234, 0x162F = 5679
         let data = &b"\x04\xD2\x16\x2Ffoo"[..];
-        let err = StartupLikeMessage::parse_body(data).unwrap_err();
+        let err = InitialRequest::parse_body(data).unwrap_err();
 
         assert_eq!(
             err.to_string(),
@@ -904,7 +904,7 @@ mod tests {
     fn test_gssenc_request_parsing() {
         // 0x04D2 = 1234, 0x1630 = 5680
         let data = &b"\x04\xD2\x16\x30"[..];
-        let msg = StartupLikeMessage::parse_body(data).unwrap();
+        let msg = InitialRequest::parse_body(data).unwrap();
 
         assert_eq!(msg, GSSENCRequest.into());
     }
@@ -913,7 +913,7 @@ mod tests {
     fn test_gssenc_request_parse_error_extra_bytes() {
         // 0x04D2 = 1234, 0x1630 = 5680
         let data = &b"\x04\xD2\x16\x30foo"[..];
-        let err = StartupLikeMessage::parse_body(data).unwrap_err();
+        let err = InitialRequest::parse_body(data).unwrap_err();
 
         assert_eq!(
             err.to_string(),
@@ -968,7 +968,7 @@ mod tests {
     fn test_cancel_request_parsing_simple() {
         // 0x04D2 = 1234, 0x162E = 5678
         let data = &b"\x04\xD2\x16\x2E\x00\x00\x30\x39secretkeydata"[..];
-        let msg = StartupLikeMessage::parse_body(data).unwrap();
+        let msg = InitialRequest::parse_body(data).unwrap();
 
         assert_eq!(
             msg,
@@ -984,7 +984,7 @@ mod tests {
     fn test_cancel_request_parsing_min_length() {
         // 0x04D2 = 1234, 0x162E = 5678
         let data = &b"\x04\xD2\x16\x2E\x00\x00\x30\x39x"[..];
-        let msg = StartupLikeMessage::parse_body(data).unwrap();
+        let msg = InitialRequest::parse_body(data).unwrap();
 
         assert_eq!(
             msg,
@@ -1001,7 +1001,7 @@ mod tests {
         // 0x04D2 = 1234, 0x162E = 5678
         let mut data = b"\x04\xD2\x16\x2E\x00\x00\x30\x39".to_vec();
         data.extend(b"a".repeat(256));
-        let msg = StartupLikeMessage::parse_body(&data).unwrap();
+        let msg = InitialRequest::parse_body(&data).unwrap();
 
         assert_eq!(
             msg,
@@ -1017,7 +1017,7 @@ mod tests {
     fn test_cancel_request_parse_error_incomplete_process_id() {
         // 0x04D2 = 1234, 0x162E = 5678
         let data = &b"\x04\xD2\x16\x2E\x00\x00\x30"[..];
-        let err = StartupLikeMessage::parse_body(data).unwrap_err();
+        let err = InitialRequest::parse_body(data).unwrap_err();
 
         assert_eq!(err.to_string(), "invalid length of cancel request packet");
     }
@@ -1026,7 +1026,7 @@ mod tests {
     fn test_cancel_request_parse_error_missing_secret_key() {
         // 0x04D2 = 1234, 0x162E = 5678
         let data = &b"\x04\xD2\x16\x2E\x00\x00\x30\x39"[..];
-        let err = StartupLikeMessage::parse_body(data).unwrap_err();
+        let err = InitialRequest::parse_body(data).unwrap_err();
 
         assert_eq!(
             err.to_string(),
@@ -1039,7 +1039,7 @@ mod tests {
         // 0x04D2 = 1234, 0x162E = 5678
         let mut data = b"\x04\xD2\x16\x2E\x00\x00\x30\x39".to_vec();
         data.extend(b"a".repeat(257));
-        let err = StartupLikeMessage::parse_body(&data).unwrap_err();
+        let err = InitialRequest::parse_body(&data).unwrap_err();
 
         assert_eq!(
             err.to_string(),

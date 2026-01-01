@@ -55,7 +55,7 @@ impl SSLResponse {
 /// Indicates that the server is willing to switch to SSL/TLS.
 ///
 /// Next state: connection is upgraded to SSL/TLS,
-///             then continue with StartupMessage (client active)
+///             then continue with InitialRequest (client active)
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct UseSSL;
 
@@ -65,7 +65,7 @@ impl UseSSL {
 
 /// Indicates that the server is not willing to switch to SSL/TLS.
 ///
-/// Next state: continue with StartupMessage (client active)
+/// Next state: continue with InitialRequest (client active)
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct NoSSL;
 

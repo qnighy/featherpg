@@ -7,8 +7,8 @@ use crate::{
     common::{BytesReader, WithExcess},
     io_util::BufReaderWriter,
     message::{
-        CancelRequest, GSSENCResponse, NegotiateProtocolVersion, NoGSSENC, NoSSL, SSLResponse,
-        StartupLikeMessage, StartupMessage, StartupResponse, UseGSSENC, UseSSL,
+        CancelRequest, GSSENCResponse, InitialRequest, NegotiateProtocolVersion, NoGSSENC, NoSSL,
+        SSLResponse, StartupMessage, StartupResponse, UseGSSENC, UseSSL,
     },
 };
 
@@ -82,11 +82,11 @@ where
         }
     }
 
-    let mut msg = StartupLikeMessage::read_from(&mut stream)?;
+    let mut msg = InitialRequest::read_from(&mut stream)?;
 
     loop {
         match msg {
-            StartupLikeMessage::SSLRequest(_) => {
+            InitialRequest::SSLRequest(_) => {
                 if capabilities.ssl {
                     SSLResponse::UseSSL(UseSSL).write_to(&mut stream)?;
                     stream.flush()?;
@@ -102,10 +102,10 @@ where
                 } else {
                     SSLResponse::NoSSL(NoSSL).write_to(&mut stream)?;
                     stream.flush()?;
-                    msg = StartupLikeMessage::read_from(&mut stream)?;
+                    msg = InitialRequest::read_from(&mut stream)?;
                 }
             }
-            StartupLikeMessage::GSSENCRequest(_) => {
+            InitialRequest::GSSENCRequest(_) => {
                 if capabilities.gssenc {
                     GSSENCResponse::UseGSSENC(UseGSSENC).write_to(&mut stream)?;
                     stream.flush()?;
@@ -118,10 +118,10 @@ where
                 } else {
                     GSSENCResponse::NoGSSENC(NoGSSENC).write_to(&mut stream)?;
                     stream.flush()?;
-                    msg = StartupLikeMessage::read_from(&mut stream)?;
+                    msg = InitialRequest::read_from(&mut stream)?;
                 }
             }
-            StartupLikeMessage::Startup(mut msg) => {
+            InitialRequest::StartupMessage(mut msg) => {
                 negotiate_protocol(&mut stream, &mut msg)?;
                 return Ok(NegotiatedEncryption::Cleartext(ConnectionKind::Startup(
                     Authentication {
@@ -132,7 +132,7 @@ where
                     },
                 )));
             }
-            StartupLikeMessage::CancelRequest(msg) => {
+            InitialRequest::CancelRequest(msg) => {
                 return Ok(NegotiatedEncryption::Cleartext(ConnectionKind::Cancel(msg)));
             }
         }
