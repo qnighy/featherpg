@@ -1,10 +1,11 @@
 use std::{
     ffi::CString,
-    io::{BufRead, Error as IoError, ErrorKind as IoErrorKind, Result as IoResult, Write},
+    io::{Error as IoError, ErrorKind as IoErrorKind, Result as IoResult, Write},
 };
 
 use crate::{
     ProtocolVersion,
+    common::GetReadBuf,
     message_common::{
         Scanner, StreamError, StreamScanner, WireFormatError, WriteWireExt, read_streamed,
     },
@@ -60,7 +61,7 @@ impl InitialRequest {
 
     pub fn read_from<R>(reader: &mut R) -> IoResult<Self>
     where
-        R: BufRead + ?Sized,
+        R: GetReadBuf + ?Sized,
     {
         read_streamed(reader, |scanner| Self::try_read(scanner))
     }

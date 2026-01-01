@@ -1,9 +1,9 @@
 use std::{
-    io::{BufRead, Result as IoResult, Write},
+    io::{Result as IoResult, Write},
     slice,
 };
 
-use crate::{message::ErrorResponse, message_common::WireFormatError};
+use crate::{common::GetReadBuf, message::ErrorResponse, message_common::WireFormatError};
 
 /// A response to an SSLRequest message, sent by the server.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -35,7 +35,7 @@ impl SSLResponse {
 
     pub fn read_from<R>(reader: &mut R) -> IoResult<Self>
     where
-        R: BufRead,
+        R: GetReadBuf + ?Sized,
     {
         let mut type_byte = b'\0';
         reader.read_exact(slice::from_mut(&mut type_byte))?;

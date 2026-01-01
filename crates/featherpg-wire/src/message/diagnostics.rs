@@ -1,9 +1,10 @@
 use std::{
     ffi::CString,
-    io::{BufRead, Result as IoResult, Write},
+    io::{Result as IoResult, Write},
 };
 
 use crate::{
+    common::GetReadBuf,
     errors::{DiagnosticMessage, DiagnosticSeverity},
     message_common::{
         Scanner, StreamError, StreamScanner, WireFormatError, WriteWireExt, read_streamed,
@@ -47,7 +48,7 @@ impl ErrorResponse {
 
     pub fn read_from<R>(reader: &mut R) -> IoResult<Self>
     where
-        R: BufRead + ?Sized,
+        R: GetReadBuf + ?Sized,
     {
         read_streamed(reader, |scanner| Self::try_read(scanner))
     }
@@ -105,7 +106,7 @@ impl NoticeResponse {
 
     pub fn read_from<R>(reader: &mut R) -> IoResult<Self>
     where
-        R: BufRead + ?Sized,
+        R: GetReadBuf + ?Sized,
     {
         read_streamed(reader, |scanner| Self::try_read(scanner))
     }

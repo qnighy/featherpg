@@ -1,9 +1,11 @@
 use std::{
     ffi::{CStr, CString},
-    io::{BufRead, Error as IoError, ErrorKind as IoErrorKind, Result as IoResult, Write},
+    io::{Error as IoError, ErrorKind as IoErrorKind, Result as IoResult, Write},
 };
 
 use thiserror::Error;
+
+use crate::common::GetReadBuf;
 
 /// Represents a protocol version with major and minor numbers.
 ///
@@ -118,19 +120,15 @@ impl<'a> Scanner<'a> {
 
 pub(crate) fn read_streamed<R, T, E, F>(reader: &mut R, mut f: F) -> IoResult<T>
 where
-    R: BufRead + ?Sized,
+    R: GetReadBuf + ?Sized,
     F: FnMut(&mut StreamScanner<'_>) -> Result<T, StreamError<E>>,
     E: Into<IoError>,
 {
-    let mut last_len = 0;
-    let mut last_demand = 1;
+    let mut last_demand;
 
     // First loop: use the built-in buffer of the BufRead
     loop {
-        let buf = reader.fill_buf()?;
-        if buf.len() <= last_len {
-            break;
-        }
+        let buf = reader.read_buffer();
 
         let mut scanner = StreamScanner::new_prefix(buf);
         match f(&mut scanner) {
@@ -140,8 +138,12 @@ where
                 return Ok(value);
             }
             Err(StreamError::MoreDataNeeded { needed }) => {
-                last_len = buf.len();
+                let last_len = buf.len();
                 last_demand = scanner.consumed() + needed;
+                let buf = reader.fill_buf()?;
+                if buf.len() <= last_len {
+                    break;
+                }
                 continue;
             }
             Err(StreamError::Other(e)) => {
