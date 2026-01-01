@@ -87,7 +87,7 @@ impl StartupLikeMessage {
         Ok(msg)
     }
 
-    pub fn parse_body(body: &[u8]) -> Result<Self, WireFormatError> {
+    fn parse_body(body: &[u8]) -> Result<Self, WireFormatError> {
         let mut scanner = Scanner::new(body);
         let version = scanner
             .read_version()

@@ -1,11 +1,13 @@
 use std::{
     ffi::CString,
-    io::{Result as IoResult, Write},
+    io::{BufRead, Result as IoResult, Write},
 };
 
 use crate::{
     errors::{DiagnosticMessage, DiagnosticSeverity},
-    message_common::{Scanner, WireFormatError, WriteWireExt},
+    message_common::{
+        Scanner, StreamError, StreamScanner, WireFormatError, WriteWireExt, read_streamed,
+    },
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -16,11 +18,111 @@ pub struct ErrorResponse {
 impl ErrorResponse {
     pub const TYPE_BYTE: u8 = b'E';
 
+    pub fn write_to<W>(&self, writer: &mut W) -> IoResult<()>
+    where
+        W: Write + ?Sized,
+    {
+        let mut buf = Vec::new();
+        self.write_body_to(&mut buf)?;
+        writer.write_usize32(buf.len() + 4)?;
+        writer.write_bytes(&buf)?;
+
+        Ok(())
+    }
+
     pub fn write_body_to<W>(&self, writer: &mut W) -> IoResult<()>
     where
         W: Write + ?Sized,
     {
         write_diagnostic_to(&self.error, writer)
+    }
+
+    pub fn read_from<R>(reader: &mut R) -> IoResult<Self>
+    where
+        R: BufRead + ?Sized,
+    {
+        read_streamed(reader, |scanner| Self::try_read(scanner))
+    }
+
+    fn try_read(scanner: &mut StreamScanner<'_>) -> Result<Self, StreamError<WireFormatError>> {
+        let len = scanner
+            .read_u32()
+            .map_err(|e| e.map(|_| WireFormatError::MessageTooShort))? as usize;
+
+        if len < 4 {
+            return Err(StreamError::from(WireFormatError::MessageTooShort));
+        }
+
+        let body = scanner
+            .read_bytes(len - 4)
+            .map_err(|e| e.map(|_| WireFormatError::IncompleteMessageBody))?;
+
+        let error = Self::parse_body(&body).map_err(StreamError::from)?;
+
+        Ok(error)
+    }
+
+    fn parse_body(body: &[u8]) -> Result<Self, WireFormatError> {
+        let diagnostic = parse_diagnostic(body)?;
+        Ok(ErrorResponse { error: diagnostic })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct NoticeResponse {
+    pub notice: DiagnosticMessage,
+}
+
+impl NoticeResponse {
+    pub const TYPE_BYTE: u8 = b'N';
+
+    pub fn write_to<W>(&self, writer: &mut W) -> IoResult<()>
+    where
+        W: Write + ?Sized,
+    {
+        let mut buf = Vec::new();
+        self.write_body_to(&mut buf)?;
+        writer.write_usize32(buf.len() + 4)?;
+        writer.write_bytes(&buf)?;
+
+        Ok(())
+    }
+
+    pub fn write_body_to<W>(&self, writer: &mut W) -> IoResult<()>
+    where
+        W: Write + ?Sized,
+    {
+        write_diagnostic_to(&self.notice, writer)
+    }
+
+    pub fn read_from<R>(reader: &mut R) -> IoResult<Self>
+    where
+        R: BufRead + ?Sized,
+    {
+        read_streamed(reader, |scanner| Self::try_read(scanner))
+    }
+
+    fn try_read(scanner: &mut StreamScanner<'_>) -> Result<Self, StreamError<WireFormatError>> {
+        let len = scanner
+            .read_u32()
+            .map_err(|e| e.map(|_| WireFormatError::MessageTooShort))? as usize;
+
+        if len < 4 {
+            return Err(StreamError::from(WireFormatError::MessageTooShort));
+        }
+
+        let body = scanner
+            .read_bytes(len - 4)
+            .map_err(|e| e.map(|_| WireFormatError::IncompleteMessageBody))?;
+
+        let error = Self::parse_body(&body).map_err(StreamError::from)?;
+
+        Ok(error)
+    }
+
+    fn parse_body(body: &[u8]) -> Result<Self, WireFormatError> {
+        let diagnostic = parse_diagnostic(body)?;
+        Ok(NoticeResponse { notice: diagnostic })
     }
 }
 

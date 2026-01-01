@@ -380,6 +380,13 @@ pub(crate) enum WireFormatError {
     #[error("missing message field in ErrorResponse or NoticeResponse message")]
     ErrorOrNoticeMissingMessage,
 
+    #[error("message too short")]
+    MessageTooShort,
+    #[error("message too long")]
+    MessageTooLong,
+    #[error("incomplete message body")]
+    IncompleteMessageBody,
+
     #[error("unknown type byte: {type_byte:02X}")]
     UnknownTypeByte { type_byte: u8 },
     #[error("unknown authentication type: {auth_type}")]
