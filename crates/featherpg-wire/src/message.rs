@@ -9,6 +9,7 @@ pub use crate::message::diagnostics::*;
 pub use crate::message::gssenc_response::*;
 pub use crate::message::ssl_response::*;
 pub use crate::message::startup::*;
+pub use crate::message::startup_response::*;
 use crate::{
     errors::DiagnosticMessage,
     io_util::BufStream,
@@ -19,6 +20,7 @@ mod diagnostics;
 mod gssenc_response;
 mod ssl_response;
 mod startup;
+mod startup_response;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) enum WireState {
