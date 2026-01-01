@@ -12,8 +12,6 @@ use crate::{
     },
 };
 
-const TLS_HANDSHAKE_SIGNATURE: u8 = 0x16;
-
 pub trait Serve {}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -60,28 +58,6 @@ where
     S: Read + Write,
 {
     let mut stream = BufReaderWriter::new(stream);
-
-    // Check for direct SSL/TLS handshake attempt (>= PostgreSQL 17)
-    if stream.fill_buf()?.get(0) == Some(&TLS_HANDSHAKE_SIGNATURE) {
-        if capabilities.ssl {
-            // No write so far, so we don't need to flush
-            let read_buf = stream.read_buffer().to_owned();
-            let stream = stream.into_inner().ok().unwrap();
-            return Ok(NegotiatedEncryption::UseSSL {
-                stream: WithExcess {
-                    stream,
-                    excess_read: BytesReader::from(read_buf),
-                },
-                require_alpn: true,
-            });
-        } else {
-            return Err(IoError::new(
-                IoErrorKind::Other,
-                "SSL/TLS connection attempted but not supported by server",
-            ));
-        }
-    }
-
     let mut msg = InitialRequest::read_from(&mut stream)?;
 
     loop {
@@ -103,6 +79,25 @@ where
                     SSLResponse::NoSSL(NoSSL).write_to(&mut stream)?;
                     stream.flush()?;
                     msg = InitialRequest::read_from(&mut stream)?;
+                }
+            }
+            InitialRequest::DirectTLS(_) => {
+                if capabilities.ssl {
+                    // No write so far, so we don't need to flush
+                    let read_buf = stream.read_buffer().to_owned();
+                    let stream = stream.into_inner().ok().unwrap();
+                    return Ok(NegotiatedEncryption::UseSSL {
+                        stream: WithExcess {
+                            stream,
+                            excess_read: BytesReader::from(read_buf),
+                        },
+                        require_alpn: true,
+                    });
+                } else {
+                    return Err(IoError::new(
+                        IoErrorKind::Other,
+                        "Direct TLS connection attempted but not supported by server",
+                    ));
                 }
             }
             InitialRequest::GSSENCRequest(_) => {

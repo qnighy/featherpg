@@ -14,6 +14,7 @@ use crate::{
 pub enum InitialRequest {
     StartupMessage(StartupMessage),
     SSLRequest(SSLRequest),
+    DirectTLS(DirectTLS),
     GSSENCRequest(GSSENCRequest),
     CancelRequest(CancelRequest),
 }
@@ -27,6 +28,12 @@ impl From<StartupMessage> for InitialRequest {
 impl From<SSLRequest> for InitialRequest {
     fn from(msg: SSLRequest) -> Self {
         InitialRequest::SSLRequest(msg)
+    }
+}
+
+impl From<DirectTLS> for InitialRequest {
+    fn from(msg: DirectTLS) -> Self {
+        InitialRequest::DirectTLS(msg)
     }
 }
 
@@ -49,6 +56,11 @@ impl InitialRequest {
     where
         W: Write + ?Sized,
     {
+        if matches!(self, InitialRequest::DirectTLS(_)) {
+            // DirectTLS itself has no body to write.
+            // It is the caller's responsibility to write the TLS handshake bytes.
+            return Ok(());
+        }
         writer.write_sized(|writer| self.write_body_to(writer))
     }
 
@@ -59,6 +71,7 @@ impl InitialRequest {
         match self {
             InitialRequest::StartupMessage(msg) => msg.write_body_to(writer),
             InitialRequest::SSLRequest(msg) => msg.write_body_to(writer),
+            InitialRequest::DirectTLS(_msg) => panic!("Do not call write_body_to for DirectTLS"),
             InitialRequest::GSSENCRequest(msg) => msg.write_body_to(writer),
             InitialRequest::CancelRequest(msg) => msg.write_body_to(writer),
         }
@@ -68,6 +81,22 @@ impl InitialRequest {
     where
         R: GetReadBuf + ?Sized,
     {
+        // Lookahead TLS signature, assuming the reader can at least hold
+        // 1 byte in its buffer.
+        let buf = {
+            let buf = reader.read_buffer();
+            if buf.is_empty() {
+                reader.fill_buf()?
+            } else {
+                buf
+            }
+        };
+        if buf.first() == Some(&DirectTLS::TLS_HANDSHAKE_SIGNATURE) {
+            // Detected DirectTLS handshake signature.
+            // Do not consume any bytes from the reader and return DirectTLS.
+            return Ok(InitialRequest::DirectTLS(DirectTLS));
+        }
+
         reader.read_sized(|reader| Self::read_body_from(reader))
     }
 
@@ -315,6 +344,17 @@ impl SSLRequest {
 
         Ok(SSLRequest)
     }
+}
+
+/// A request to initiate SSL-encrypted communication.
+///
+/// Next state: upgrade the connection to TLS and continue with InitialRequest,
+///             or close the connection immediately if TLS is not supported.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct DirectTLS;
+
+impl DirectTLS {
+    pub const TLS_HANDSHAKE_SIGNATURE: u8 = 0x16;
 }
 
 /// A request to initiate GSSENC-encrypted communication.
