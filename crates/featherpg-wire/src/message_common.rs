@@ -1,7 +1,6 @@
 use std::{
     ffi::{CStr, CString},
-    io::{self, BufRead, Error as IoError, ErrorKind as IoErrorKind, Result as IoResult, Write},
-    str::Utf8Error,
+    io::{BufRead, Error as IoError, ErrorKind as IoErrorKind, Result as IoResult, Write},
 };
 
 use thiserror::Error;
@@ -18,34 +17,6 @@ pub struct ProtocolVersion {
 impl ProtocolVersion {
     pub const fn new(major: u16, minor: u16) -> Self {
         Self { major, minor }
-    }
-}
-
-/// A `Write` implementation that just counts the number of bytes written.
-#[derive(Debug)]
-pub(crate) struct LengthCounter {
-    len: usize,
-}
-
-impl LengthCounter {
-    pub(crate) fn new() -> Self {
-        Self { len: 0 }
-    }
-
-    pub(crate) fn len(&self) -> usize {
-        self.len
-    }
-}
-
-impl Write for LengthCounter {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        let n = buf.len();
-        self.len += n;
-        Ok(n)
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
     }
 }
 
@@ -70,11 +41,6 @@ pub(crate) trait WriteWireExt: Write {
         self.write_u16(version.minor)?;
 
         Ok(())
-    }
-    fn write_cstring_old(&mut self, s: &str) -> IoResult<()> {
-        assert!(!s.contains('\0'), "CString cannot contain null bytes");
-        self.write_all(s.as_bytes())?;
-        self.write_u8(0)
     }
     fn write_cstring(&mut self, s: &CStr) -> IoResult<()> {
         self.write_all(s.to_bytes_with_nul())
@@ -107,23 +73,6 @@ impl<'a> Scanner<'a> {
         let start = self.position;
         self.position = self.data.len();
         &self.data[start..]
-    }
-
-    pub(crate) fn read_cstring_old(&mut self) -> Result<String, WireFormatError> {
-        let start = self.position;
-        while self.position < self.data.len() && self.data[self.position] != 0 {
-            self.position += 1;
-        }
-
-        if self.position >= self.data.len() {
-            return Err(WireFormatError::UnexpectedEof);
-        }
-
-        let string_bytes = &self.data[start..self.position];
-        self.position += 1; // Skip the null terminator
-
-        let s = str::from_utf8(string_bytes)?.to_owned();
-        Ok(s)
     }
 
     pub(crate) fn read_cstr(&mut self) -> Result<&'a CStr, EofError> {
@@ -391,19 +340,6 @@ pub(crate) enum WireFormatError {
     InvalidSSLResponseTypeByte { type_byte: u8 },
     #[error("unknown type byte for GSSENC response: {type_byte:02X}")]
     InvalidGSSENCResponseTypeByte { type_byte: u8 },
-
-    #[error("unknown type byte: {type_byte:02X}")]
-    UnknownTypeByte { type_byte: u8 },
-    #[error("unknown authentication type: {auth_type}")]
-    UnknownAuthType { auth_type: u32 },
-    #[error("got message length less than 4")]
-    LengthTooShort,
-    #[error("unexpected end of message")]
-    UnexpectedEof,
-    #[error("invalid UTF-8 sequence")]
-    InvalidUtf8(#[from] Utf8Error),
-    #[error("Trailing bytes in message")]
-    ExtraBytes,
 }
 
 impl From<WireFormatError> for IoError {
