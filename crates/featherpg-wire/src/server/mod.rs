@@ -5,11 +5,10 @@ use std::io::{
 use crate::{
     ProtocolVersion,
     common::{BytesReader, WithExcess},
-    errors::DiagnosticMessage,
     io_util::BufStream,
     message::{
-        CancelRequest, GSSENCResponse, NoGSSENC, NoSSL, SSLResponse, StartupLikeMessage,
-        StartupMessage, UseGSSENC, UseSSL, WireMessage, WireState,
+        CancelRequest, GSSENCResponse, NegotiateProtocolVersion, NoGSSENC, NoSSL, SSLResponse,
+        StartupLikeMessage, StartupMessage, StartupResponse, UseGSSENC, UseSSL,
     },
 };
 
@@ -166,14 +165,11 @@ where
     }
 
     if new_version != params.version || !unrecognized_options.is_empty() {
-        let msg = WireMessage::NegotiateProtocolVersion {
+        let msg: StartupResponse = NegotiateProtocolVersion {
             version: new_version,
-            // TODO: use CString
-            unrecognized_options: unrecognized_options
-                .into_iter()
-                .map(|s| s.to_string_lossy().into_owned())
-                .collect(),
-        };
+            unrecognized_options,
+        }
+        .into();
         msg.write_to(stream)?;
     }
 
@@ -190,96 +186,4 @@ struct InternalSession<S> {
 #[derive(Debug)]
 pub struct Authentication<S> {
     session: InternalSession<S>,
-}
-
-impl<S> Authentication<S>
-where
-    S: Read + Write,
-{
-    pub fn authentication_ok(mut self) -> IoResult<BackendStartup<S>> {
-        let msg = WireMessage::AuthenticationOk;
-        msg.write_to(&mut self.session.stream)?;
-        Ok(BackendStartup {
-            session: self.session,
-        })
-    }
-
-    // TODO: other authentication methods
-}
-
-#[derive(Debug)]
-pub struct BackendStartup<S> {
-    session: InternalSession<S>,
-}
-
-impl<S> BackendStartup<S>
-where
-    S: Read + Write,
-{
-    pub fn send_backend_key(&mut self, process_id: i32, secret_key: &[u8]) -> IoResult<()> {
-        let msg = WireMessage::BackendKeyData {
-            process_id,
-            secret_key: secret_key.to_owned(),
-        };
-        msg.write_to(&mut self.session.stream)?;
-
-        Ok(())
-    }
-
-    pub fn send_parameter_status(&mut self, name: &str, value: &str) -> IoResult<()> {
-        let msg = WireMessage::ParameterStatus {
-            parameter: name.to_owned(),
-            value: value.to_owned(),
-        };
-        msg.write_to(&mut self.session.stream)?;
-
-        Ok(())
-    }
-
-    pub fn send_notice(&mut self, notice: DiagnosticMessage) -> IoResult<()> {
-        let msg = WireMessage::NoticeResponse { notice };
-        msg.write_to(&mut self.session.stream)?;
-
-        Ok(())
-    }
-
-    pub fn send_error(mut self, error: DiagnosticMessage) -> IoResult<()> {
-        let msg = WireMessage::ErrorResponse { error };
-        msg.write_to(&mut self.session.stream)?;
-        self.session.stream.flush()?;
-
-        Ok(())
-    }
-
-    pub fn ready(mut self) -> IoResult<Ready<S>> {
-        let msg = WireMessage::ReadyForQuery {
-            transaction_status: crate::message::TransactionStatus::Idle,
-        };
-        msg.write_to(&mut self.session.stream)?;
-        self.session.stream.flush()?;
-
-        Ok(Ready {
-            session: self.session,
-        })
-    }
-}
-
-#[derive(Debug)]
-pub struct Ready<S> {
-    session: InternalSession<S>,
-}
-
-impl<S> Ready<S>
-where
-    S: Read + Write,
-{
-    pub fn serve<Sv>(mut self, server: &mut Sv) -> IoResult<()>
-    where
-        Sv: Serve + ?Sized,
-    {
-        let msg = WireMessage::read_from(&mut self.session.stream, WireState::Ordinary)?;
-        match msg {
-            _ => unimplemented!("serve not implemented for {:?}", msg),
-        }
-    }
 }

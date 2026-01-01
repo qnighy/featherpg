@@ -57,10 +57,10 @@ fn handle_client(stream: TcpStream) -> io::Result<()> {
     };
 
     println!("Sending AuthenticationOk...");
-    let conn = conn.authentication_ok()?;
-    println!("Sending ReadyForQuery...");
-    let conn = conn.ready()?;
-    println!("Client is ready to process queries.");
+    // let conn = conn.authentication_ok()?;
+    // println!("Sending ReadyForQuery...");
+    // let conn = conn.ready()?;
+    // println!("Client is ready to process queries.");
 
     Ok(())
 }
