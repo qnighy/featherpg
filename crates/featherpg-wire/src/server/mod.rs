@@ -1,13 +1,11 @@
-use std::io::{
-    BufRead, Error as IoError, ErrorKind as IoErrorKind, Read, Result as IoResult, Write,
-};
+use std::io::{Error as IoError, ErrorKind as IoErrorKind, Read, Result as IoResult, Write};
 
 use crate::{
     ProtocolVersion,
     common::{BytesReader, GetReadBuf, VoidIO, WithExcess},
-    io_util::BufReaderWriter,
+    io_util::{BufReaderWriter, Encryptable},
     message::{
-        CancelRequest, GSSENCResponse as RawGSSENCResponse, InitialRequest,
+        AuthenticationOk, CancelRequest, GSSENCResponse as RawGSSENCResponse, InitialRequest,
         NegotiateProtocolVersion, NoGSSENC, NoSSL, SSLResponse as RawSSLResponse, StartupMessage,
         StartupResponse, UseGSSENC, UseSSL,
     },
@@ -50,7 +48,15 @@ pub trait UpgradeToTLS<S> {
     type TLSConn: GetReadBuf + Write;
 
     /// Upgrades the given stream to TLS.
-    fn upgrade_to_tls(self, stream: S) -> IoResult<Self::TLSConn>;
+    fn upgrade_to_tls(self, stream: WithExcess<S>, alpn_mode: ALPNMode) -> IoResult<Self::TLSConn>;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ALPNMode {
+    /// The use of ALPN is optional.
+    Optional,
+    /// Require "postgresql" to be selected via ALPN.
+    RequireALPN,
 }
 
 #[derive(Debug)]
@@ -61,7 +67,11 @@ pub struct NoTLSUpgrade {
 impl<S> UpgradeToTLS<S> for NoTLSUpgrade {
     type TLSConn = VoidIO;
 
-    fn upgrade_to_tls(self, _stream: S) -> IoResult<Self::TLSConn> {
+    fn upgrade_to_tls(
+        self,
+        _stream: WithExcess<S>,
+        _alpn_mode: ALPNMode,
+    ) -> IoResult<Self::TLSConn> {
         match self.inner {}
     }
 }
@@ -80,7 +90,7 @@ pub trait UpgradeToGSSENC<S> {
     type GSSENCConn: GetReadBuf + Write;
 
     /// Upgrades the given stream to GSSENC.
-    fn upgrade_to_gssenc(self, stream: S) -> IoResult<Self::GSSENCConn>;
+    fn upgrade_to_gssenc(self, stream: WithExcess<S>) -> IoResult<Self::GSSENCConn>;
 }
 
 #[derive(Debug)]
@@ -91,7 +101,7 @@ pub struct NoGSSENCUpgrade {
 impl<S> UpgradeToGSSENC<S> for NoGSSENCUpgrade {
     type GSSENCConn = VoidIO;
 
-    fn upgrade_to_gssenc(self, _stream: S) -> IoResult<Self::GSSENCConn> {
+    fn upgrade_to_gssenc(self, _stream: WithExcess<S>) -> IoResult<Self::GSSENCConn> {
         match self.inner {}
     }
 }
@@ -126,6 +136,132 @@ pub struct InitializationNotifier<'a> {
 
 /// A trait representing the established session.
 pub trait Session {}
+
+pub fn handle_session<S, Startup>(stream: S, mut server: Startup) -> IoResult<()>
+where
+    S: Read + Write,
+    Startup: NegotiateEncryption<S>,
+{
+    let mut stream = BufReaderWriter::new(Encryptable::Cleartext(stream));
+
+    let mut msg = InitialRequest::read_from(&mut stream)?;
+
+    match msg {
+        InitialRequest::SSLRequest(_) => match server.tls()? {
+            TLSResponse::UseTLS(upgrade) => {
+                RawSSLResponse::UseSSL(UseSSL).write_to(&mut stream)?;
+                stream.flush()?;
+                let with_excess = prepare_upgrade(stream)?;
+                let tls_conn = upgrade.upgrade_to_tls(with_excess, ALPNMode::Optional)?;
+                stream = BufReaderWriter::new(Encryptable::UseSSL(tls_conn));
+                msg = InitialRequest::read_from(&mut stream)?;
+            }
+            TLSResponse::NoTLS => {
+                RawSSLResponse::NoSSL(NoSSL).write_to(&mut stream)?;
+                stream.flush()?;
+                msg = InitialRequest::read_from(&mut stream)?;
+            }
+        },
+        InitialRequest::DirectTLS(_) => match server.tls()? {
+            TLSResponse::UseTLS(upgrade) => {
+                let with_excess = prepare_upgrade(stream)?;
+                let tls_conn = upgrade.upgrade_to_tls(with_excess, ALPNMode::RequireALPN)?;
+                stream = BufReaderWriter::new(Encryptable::UseSSL(tls_conn));
+                msg = InitialRequest::read_from(&mut stream)?;
+            }
+            TLSResponse::NoTLS => {
+                return Err(IoError::new(
+                    IoErrorKind::Other,
+                    "Direct TLS connection attempted but not supported by server",
+                ));
+            }
+        },
+        InitialRequest::GSSENCRequest(_) => match server.gssenc()? {
+            GSSENCResponse::UseGSSENC(upgrade) => {
+                RawGSSENCResponse::UseGSSENC(UseGSSENC).write_to(&mut stream)?;
+                stream.flush()?;
+                let with_excess = prepare_upgrade(stream)?;
+                let gssenc_conn = upgrade.upgrade_to_gssenc(with_excess)?;
+                stream = BufReaderWriter::new(Encryptable::UseGSSENC(gssenc_conn));
+                msg = InitialRequest::read_from(&mut stream)?;
+            }
+            GSSENCResponse::NoGSSENC => {
+                RawGSSENCResponse::NoGSSENC(NoGSSENC).write_to(&mut stream)?;
+                stream.flush()?;
+                msg = InitialRequest::read_from(&mut stream)?;
+            }
+        },
+        _ => {}
+    }
+
+    loop {
+        match msg {
+            InitialRequest::StartupMessage(msg) => {
+                let backend_init = server.start(
+                    msg,
+                    &mut Authenticator {
+                        _marker: std::marker::PhantomData,
+                    },
+                )?;
+                StartupResponse::AuthenticationOk(AuthenticationOk).write_to(&mut stream)?;
+                stream.flush()?;
+                let mut notifier = InitializationNotifier {
+                    _marker: std::marker::PhantomData,
+                };
+                let _session = backend_init.initialize_backend(&mut notifier)?;
+                // Session established; in a real server, we would now enter the main loop
+                break;
+            }
+            InitialRequest::SSLRequest(_) => {
+                RawSSLResponse::NoSSL(NoSSL).write_to(&mut stream)?;
+                stream.flush()?;
+                msg = InitialRequest::read_from(&mut stream)?;
+            }
+            InitialRequest::DirectTLS(_) => {
+                return Err(IoError::new(
+                    IoErrorKind::Other,
+                    "Direct TLS connection attempted but not supported by server",
+                ));
+            }
+            InitialRequest::GSSENCRequest(_) => {
+                RawGSSENCResponse::NoGSSENC(NoGSSENC).write_to(&mut stream)?;
+                stream.flush()?;
+                msg = InitialRequest::read_from(&mut stream)?;
+            }
+            InitialRequest::CancelRequest(msg) => {
+                server.process_cancel(msg)?;
+                return Ok(());
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn prepare_upgrade<S, TLSConn, GSSENCConn>(
+    stream: BufReaderWriter<Encryptable<S, TLSConn, GSSENCConn>>,
+) -> IoResult<WithExcess<S>>
+where
+    S: Read + Write,
+    TLSConn: Read + Write,
+    GSSENCConn: Read + Write,
+{
+    let read_buf = stream.read_buffer().to_owned();
+    let (stream, write_buf) = stream.into_parts();
+
+    let stream = match stream {
+        Encryptable::Cleartext(stream) => stream,
+        Encryptable::UseSSL(_) => unreachable!("do not call prepare_upgrade on TLS streams"),
+        Encryptable::UseGSSENC(_) => unreachable!("do not call prepare_upgrade on GSSENC streams"),
+    };
+    let write_buf = write_buf.map_err(|e| IoError::new(IoErrorKind::Other, e))?;
+    assert!(write_buf.is_empty(), "flush before upgrade");
+
+    Ok(WithExcess {
+        stream,
+        excess_read: BytesReader::from(read_buf),
+    })
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct EncryptionCapabilities {
