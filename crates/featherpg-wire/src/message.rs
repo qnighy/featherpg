@@ -5,6 +5,7 @@ use std::io::{
     BufRead, Error as IoError, ErrorKind as IoErrorKind, Read, Result as IoResult, Write,
 };
 
+pub use crate::message::startup::*;
 use crate::{
     errors::DiagnosticMessage,
     io_util::BufStream,

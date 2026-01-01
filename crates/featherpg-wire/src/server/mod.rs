@@ -7,19 +7,15 @@ use crate::{
     common::{BytesReader, WithExcess},
     errors::DiagnosticMessage,
     io_util::BufStream,
-    message::{StartupParameter, WireMessage, WireState},
+    message::{
+        CancelRequest, StartupLikeMessage, StartupMessage, StartupParameter, WireMessage, WireState,
+    },
     message_common::WriteWireExt,
 };
 
 const TLS_HANDSHAKE_SIGNATURE: u8 = 0x16;
 
 pub trait Serve {}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct CancelRequest {
-    pub process_id: i32,
-    pub secret_key: Vec<u8>,
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct EncryptionCapabilities {
@@ -80,11 +76,11 @@ where
         }
     }
 
-    let mut msg = WireMessage::read_from(&mut stream, WireState::BackendStartup)?;
+    let mut msg = StartupLikeMessage::read_from(&mut stream)?;
 
     loop {
         match msg {
-            WireMessage::SSLRequest => {
+            StartupLikeMessage::SSLRequest(_) => {
                 if capabilities.ssl {
                     stream.write_u8(b'S')?;
                     stream.flush()?;
@@ -99,10 +95,10 @@ where
                 } else {
                     stream.write_u8(b'N')?;
                     stream.flush()?;
-                    msg = WireMessage::read_from(&mut stream, WireState::BackendStartup)?;
+                    msg = StartupLikeMessage::read_from(&mut stream)?;
                 }
             }
-            WireMessage::GSSENCRequest => {
+            StartupLikeMessage::GSSENCRequest(_) => {
                 if capabilities.gssenc {
                     stream.write_u8(b'G')?;
                     stream.flush()?;
@@ -114,34 +110,22 @@ where
                 } else {
                     stream.write_u8(b'N')?;
                     stream.flush()?;
-                    msg = WireMessage::read_from(&mut stream, WireState::BackendStartup)?;
+                    msg = StartupLikeMessage::read_from(&mut stream)?;
                 }
             }
-            WireMessage::StartupMessage {
-                mut version,
-                mut parameters,
-            } => {
-                negotiate_protocol(&mut stream, &mut version, &mut parameters)?;
+            StartupLikeMessage::Startup(mut msg) => {
+                negotiate_protocol(&mut stream, &mut msg)?;
                 return Ok(NegotiatedEncryption::Cleartext(ConnectionKind::Startup(
                     Authentication {
                         session: InternalSession {
                             stream,
-                            version,
-                            parameters,
+                            params: msg,
                         },
                     },
                 )));
             }
-            WireMessage::CancelRequest {
-                process_id,
-                secret_key,
-            } => {
-                return Ok(NegotiatedEncryption::Cleartext(ConnectionKind::Cancel(
-                    CancelRequest {
-                        process_id,
-                        secret_key,
-                    },
-                )));
+            StartupLikeMessage::CancelRequest(msg) => {
+                return Ok(NegotiatedEncryption::Cleartext(ConnectionKind::Cancel(msg)));
             }
             _ => unreachable!("Impossible due to parser state: {:?}", msg),
         }
@@ -165,34 +149,31 @@ where
     }
 }
 
-fn negotiate_protocol<S>(
-    stream: &mut BufStream<S>,
-    version: &mut ProtocolVersion,
-    parameters: &mut Vec<StartupParameter>,
-) -> IoResult<()>
+fn negotiate_protocol<S>(stream: &mut BufStream<S>, params: &mut StartupMessage) -> IoResult<()>
 where
     S: Read + Write,
 {
-    let new_version = if *version >= ProtocolVersion::new(3, 2) {
+    let new_version = if params.version >= ProtocolVersion::new(3, 2) {
         ProtocolVersion::new(3, 2)
     } else {
         // TODO: reject requests for versions < 3.0
         ProtocolVersion::new(3, 0)
     };
     let mut unrecognized_options = Vec::new();
-    for param in &*parameters {
-        if param.name.starts_with("_pq_.") {
-            unrecognized_options.push(param.name.clone());
+    for (name, _) in &params.other_protocol_options {
+        if name.as_bytes().starts_with(b"_pq_.") {
+            unrecognized_options.push(name.clone());
         }
     }
-    if !unrecognized_options.is_empty() {
-        parameters.retain(|param| !param.name.starts_with("_pq_."));
-    }
 
-    if new_version != *version || !unrecognized_options.is_empty() {
+    if new_version != params.version || !unrecognized_options.is_empty() {
         let msg = WireMessage::NegotiateProtocolVersion {
             version: new_version,
-            unrecognized_options,
+            // TODO: use CString
+            unrecognized_options: unrecognized_options
+                .into_iter()
+                .map(|s| s.to_string_lossy().into_owned())
+                .collect(),
         };
         msg.write_to(stream)?;
     }
@@ -204,8 +185,7 @@ where
 struct InternalSession<S> {
     stream: BufStream<S>,
     // TODO: expose version and parameters
-    version: ProtocolVersion,
-    parameters: Vec<StartupParameter>,
+    params: StartupMessage,
 }
 
 #[derive(Debug)]
