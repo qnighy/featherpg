@@ -126,10 +126,21 @@ impl<'a> Scanner<'a> {
         Ok(s)
     }
 
+    pub(crate) fn read_cstr(&mut self) -> Result<&'a CStr, EofError> {
+        let s = CStr::from_bytes_until_nul(&self.data[self.position..]).map_err(|_| EofError)?;
+        self.position += s.to_bytes_with_nul().len();
+        Ok(s)
+    }
+
     pub(crate) fn read_cstring(&mut self) -> Result<CString, EofError> {
         let s = CStr::from_bytes_until_nul(&self.data[self.position..]).map_err(|_| EofError)?;
         self.position += s.to_bytes_with_nul().len();
         Ok(s.to_owned())
+    }
+
+    pub(crate) fn read_u8(&mut self) -> Result<u8, EofError> {
+        let bytes = self.read_bytes(1)?;
+        Ok(bytes[0])
     }
 
     pub(crate) fn read_u32(&mut self) -> Result<u32, EofError> {
@@ -353,6 +364,21 @@ pub(crate) enum WireFormatError {
     CancelRequestMissingSecretKey,
     #[error("invalid length of cancel key in cancel request packet")]
     CancelRequestSecretKeyTooLong { length: usize, max_length: usize },
+
+    #[error("unterminated ErrorResponse or NoticeResponse message")]
+    ErrorOrNoticeUnterminated,
+    #[error("unknown diagnostic severity in ErrorResponse or NoticeResponse message")]
+    ErrorOrNoticeUnknownDiagnosticSeverity { severity: CString },
+    #[error("invalid integer field in ErrorResponse or NoticeResponse message")]
+    ErrorOrNoticeInvalidInteger { position_str: CString },
+    #[error("missing severity field in ErrorResponse or NoticeResponse message")]
+    ErrorOrNoticeMissingSeverity,
+    #[error("missing localized severity field in ErrorResponse or NoticeResponse message")]
+    ErrorOrNoticeMissingLocalizedSeverity,
+    #[error("missing code field in ErrorResponse or NoticeResponse message")]
+    ErrorOrNoticeMissingCode,
+    #[error("missing message field in ErrorResponse or NoticeResponse message")]
+    ErrorOrNoticeMissingMessage,
 
     #[error("unknown type byte: {type_byte:02X}")]
     UnknownTypeByte { type_byte: u8 },

@@ -5,6 +5,7 @@ use std::io::{
     BufRead, Error as IoError, ErrorKind as IoErrorKind, Read, Result as IoResult, Write,
 };
 
+pub use crate::message::diagnostics::*;
 pub use crate::message::startup::*;
 use crate::{
     errors::DiagnosticMessage,
@@ -12,6 +13,7 @@ use crate::{
     message_common::{LengthCounter, ProtocolVersion, Scanner, WireFormatError, WriteWireExt},
 };
 
+mod diagnostics;
 mod startup;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
