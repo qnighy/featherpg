@@ -3,12 +3,12 @@
 
 pub use crate::message::diagnostics::*;
 pub use crate::message::gssenc_response::*;
+pub use crate::message::initial_request::*;
 pub use crate::message::ssl_response::*;
-pub use crate::message::startup::*;
 pub use crate::message::startup_response::*;
 
 mod diagnostics;
 mod gssenc_response;
+mod initial_request;
 mod ssl_response;
-mod startup;
 mod startup_response;
