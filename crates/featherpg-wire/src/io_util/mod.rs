@@ -8,6 +8,8 @@ use std::{
 
 use thiserror::Error;
 
+use crate::common::GetReadBuf;
+
 /// BufReader and BufWriter, combined into a single type.
 pub(crate) struct BufReaderWriter<S>
 where
@@ -171,6 +173,15 @@ where
 
     fn read_line(&mut self, buf: &mut String) -> IoResult<usize> {
         self.inner.get_mut().read_line(buf)
+    }
+}
+
+impl<S> GetReadBuf for BufReaderWriter<S>
+where
+    S: Read + Write + ?Sized,
+{
+    fn read_buffer(&self) -> &[u8] {
+        self.inner.get_ref().read_buffer()
     }
 }
 
@@ -366,6 +377,15 @@ where
 
     fn read_line(&mut self, buf: &mut String) -> IoResult<usize> {
         self.inner.read_line(buf)
+    }
+}
+
+impl<S> GetReadBuf for BufReaderWrapper<S>
+where
+    S: Read + ?Sized,
+{
+    fn read_buffer(&self) -> &[u8] {
+        self.inner.buffer()
     }
 }
 

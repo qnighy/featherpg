@@ -2,7 +2,7 @@
 
 use std::{
     fmt,
-    io::{BufRead, IoSlice, IoSliceMut, Read, Result as IoResult, Write},
+    io::{BufRead, BufReader, Cursor, IoSlice, IoSliceMut, Read, Result as IoResult, Write},
     ops::{Deref, DerefMut},
 };
 
@@ -13,6 +13,78 @@ use pin_project::pin_project;
 mod futures;
 #[cfg(feature = "tokio")]
 mod tokio;
+
+// See: https://internals.rust-lang.org/t/add-bufwriter-bufreader-buffer-to-bufread-trait/13668
+/// Like [std::io::BufRead], but exposes the internal read buffer.
+pub trait GetReadBuf: BufRead {
+    /// Returns the internal read buffer, like [std::io::BufReader::buffer].
+    fn read_buffer(&self) -> &[u8];
+}
+
+impl GetReadBuf for &[u8] {
+    fn read_buffer(&self) -> &[u8] {
+        self
+    }
+}
+
+impl GetReadBuf for std::io::Empty {
+    fn read_buffer(&self) -> &[u8] {
+        &[]
+    }
+}
+
+impl<R> GetReadBuf for &mut R
+where
+    R: GetReadBuf + ?Sized,
+{
+    fn read_buffer(&self) -> &[u8] {
+        <R as GetReadBuf>::read_buffer(self)
+    }
+}
+
+impl<R> GetReadBuf for Box<R>
+where
+    R: GetReadBuf + ?Sized,
+{
+    fn read_buffer(&self) -> &[u8] {
+        <R as GetReadBuf>::read_buffer(self)
+    }
+}
+
+impl<R> GetReadBuf for BufReader<R>
+where
+    R: Read,
+{
+    fn read_buffer(&self) -> &[u8] {
+        self.buffer()
+    }
+}
+
+impl<R> GetReadBuf for Cursor<R>
+where
+    R: AsRef<[u8]>,
+{
+    fn read_buffer(&self) -> &[u8] {
+        let slice = self.get_ref().as_ref();
+        let pos = self.position().min(slice.len() as u64);
+        &slice[pos as usize..]
+    }
+}
+
+impl<R> GetReadBuf for std::io::Take<R>
+where
+    R: GetReadBuf,
+{
+    fn read_buffer(&self) -> &[u8] {
+        if self.limit() == 0 {
+            return &[];
+        }
+
+        let buf = self.get_ref().read_buffer();
+        let cap = (buf.len() as u64).min(self.limit()) as usize;
+        &buf[..cap]
+    }
+}
 
 /// A stream for reading from Vec<u8>.
 ///
@@ -93,6 +165,12 @@ impl BufRead for BytesReader {
     }
 }
 
+impl GetReadBuf for BytesReader {
+    fn read_buffer(&self) -> &[u8] {
+        &self
+    }
+}
+
 impl BytesReader {
     fn do_borrowed<F, R>(&mut self, f: F) -> R
     where
@@ -168,6 +246,16 @@ impl<S: BufRead> BufRead for WithExcess<S> {
             self.excess_read.consume(amt);
         } else {
             self.stream.consume(amt);
+        }
+    }
+}
+
+impl<S: GetReadBuf> GetReadBuf for WithExcess<S> {
+    fn read_buffer(&self) -> &[u8] {
+        if !self.excess_read.is_empty() {
+            self.excess_read.read_buffer()
+        } else {
+            self.stream.read_buffer()
         }
     }
 }
