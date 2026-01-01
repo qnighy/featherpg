@@ -50,8 +50,6 @@ impl From<CancelRequest> for InitialRequest {
 }
 
 impl InitialRequest {
-    const MAX_STARTUP_PACKET_LENGTH: usize = 10000;
-
     pub fn write_to<W>(&self, writer: &mut W) -> IoResult<()>
     where
         W: Write + ?Sized,
@@ -77,7 +75,10 @@ impl InitialRequest {
         }
     }
 
-    pub fn read_from<R>(reader: &mut R) -> IoResult<Self>
+    pub fn read_with_tls_lookahead<R>(
+        reader: &mut R,
+        limits: &InitialRequestLimits,
+    ) -> IoResult<Self>
     where
         R: GetReadBuf + ?Sized,
     {
@@ -96,8 +97,14 @@ impl InitialRequest {
             // Do not consume any bytes from the reader and return DirectTLS.
             return Ok(InitialRequest::DirectTLS(DirectTLS));
         }
+        Self::read_from(reader, limits)
+    }
 
-        reader.read_sized(|reader| Self::read_body_from(reader))
+    pub fn read_from<R>(reader: &mut R, limits: &InitialRequestLimits) -> IoResult<Self>
+    where
+        R: GetReadBuf + ?Sized,
+    {
+        reader.read_sized(limits.max_length, |reader| Self::read_body_from(reader))
     }
 
     pub fn read_body_from<R>(reader: &mut R) -> IoResult<Self>
@@ -117,6 +124,11 @@ impl InitialRequest {
             _ => Ok(StartupMessage::read_after_version(reader, version)?.into()),
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct InitialRequestLimits {
+    pub max_length: usize,
 }
 
 /// A request to initiate an ordinary session.

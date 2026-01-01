@@ -5,10 +5,12 @@ use crate::{
     io_util::{BufReaderWriter, Encryptable},
     message::{
         AuthenticationOk, CancelRequest, GSSENCResponse as RawGSSENCResponse, InitialRequest,
-        NoGSSENC, NoSSL, SSLResponse as RawSSLResponse, StartupMessage, StartupResponse, UseGSSENC,
-        UseSSL,
+        InitialRequestLimits, NoGSSENC, NoSSL, SSLResponse as RawSSLResponse, StartupMessage,
+        StartupResponse, UseGSSENC, UseSSL,
     },
 };
+
+const MAX_STARTUP_PACKET_LENGTH: usize = 10000;
 
 /// A trait representing the ability to negotiate encryption.
 pub trait NegotiateEncryption<S> {
@@ -143,7 +145,10 @@ where
 {
     let mut stream = BufReaderWriter::new(Encryptable::Cleartext(stream));
 
-    let mut msg = InitialRequest::read_from(&mut stream)?;
+    let limits = InitialRequestLimits {
+        max_length: MAX_STARTUP_PACKET_LENGTH,
+    };
+    let mut msg = InitialRequest::read_with_tls_lookahead(&mut stream, &limits)?;
 
     match msg {
         InitialRequest::SSLRequest(_) => match server.tls()? {
@@ -153,12 +158,12 @@ where
                 let with_excess = prepare_upgrade(stream)?;
                 let tls_conn = upgrade.upgrade_to_tls(with_excess, ALPNMode::Optional)?;
                 stream = BufReaderWriter::new(Encryptable::UseSSL(tls_conn));
-                msg = InitialRequest::read_from(&mut stream)?;
+                msg = InitialRequest::read_from(&mut stream, &limits)?;
             }
             TLSResponse::NoTLS => {
                 RawSSLResponse::NoSSL(NoSSL).write_to(&mut stream)?;
                 stream.flush()?;
-                msg = InitialRequest::read_from(&mut stream)?;
+                msg = InitialRequest::read_from(&mut stream, &limits)?;
             }
         },
         InitialRequest::DirectTLS(_) => match server.tls()? {
@@ -166,7 +171,7 @@ where
                 let with_excess = prepare_upgrade(stream)?;
                 let tls_conn = upgrade.upgrade_to_tls(with_excess, ALPNMode::RequireALPN)?;
                 stream = BufReaderWriter::new(Encryptable::UseSSL(tls_conn));
-                msg = InitialRequest::read_from(&mut stream)?;
+                msg = InitialRequest::read_from(&mut stream, &limits)?;
             }
             TLSResponse::NoTLS => {
                 return Err(IoError::new(
@@ -182,12 +187,12 @@ where
                 let with_excess = prepare_upgrade(stream)?;
                 let gssenc_conn = upgrade.upgrade_to_gssenc(with_excess)?;
                 stream = BufReaderWriter::new(Encryptable::UseGSSENC(gssenc_conn));
-                msg = InitialRequest::read_from(&mut stream)?;
+                msg = InitialRequest::read_from(&mut stream, &limits)?;
             }
             GSSENCResponse::NoGSSENC => {
                 RawGSSENCResponse::NoGSSENC(NoGSSENC).write_to(&mut stream)?;
                 stream.flush()?;
-                msg = InitialRequest::read_from(&mut stream)?;
+                msg = InitialRequest::read_from(&mut stream, &limits)?;
             }
         },
         _ => {}
@@ -214,18 +219,13 @@ where
             InitialRequest::SSLRequest(_) => {
                 RawSSLResponse::NoSSL(NoSSL).write_to(&mut stream)?;
                 stream.flush()?;
-                msg = InitialRequest::read_from(&mut stream)?;
+                msg = InitialRequest::read_from(&mut stream, &limits)?;
             }
-            InitialRequest::DirectTLS(_) => {
-                return Err(IoError::new(
-                    IoErrorKind::Other,
-                    "Direct TLS connection attempted but not supported by server",
-                ));
-            }
+            InitialRequest::DirectTLS(_) => unreachable!("cannot receive DirectTLS here"),
             InitialRequest::GSSENCRequest(_) => {
                 RawGSSENCResponse::NoGSSENC(NoGSSENC).write_to(&mut stream)?;
                 stream.flush()?;
-                msg = InitialRequest::read_from(&mut stream)?;
+                msg = InitialRequest::read_from(&mut stream, &limits)?;
             }
             InitialRequest::CancelRequest(msg) => {
                 server.process_cancel(msg)?;

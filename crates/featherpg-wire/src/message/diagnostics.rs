@@ -215,7 +215,7 @@ fn read_diagnostic<R>(reader: &mut R) -> IoResult<DiagnosticMessage>
 where
     R: GetReadBuf + ?Sized,
 {
-    reader.read_sized(|reader| read_diagnostic_body(reader))
+    reader.read_sized(usize::MAX, |reader| read_diagnostic_body(reader))
 }
 
 fn read_diagnostic_body<R>(reader: &mut R) -> IoResult<DiagnosticMessage>

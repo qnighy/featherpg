@@ -106,7 +106,7 @@ pub(crate) trait ReadWireExt: GetReadBuf {
         }
         Ok(CString::from_vec_with_nul(all_buf).unwrap())
     }
-    fn read_sized<T, F>(&mut self, f: F) -> IoResult<T>
+    fn read_sized<T, F>(&mut self, limit: usize, f: F) -> IoResult<T>
     where
         F: FnOnce(&mut &[u8]) -> IoResult<T>,
     {
@@ -115,6 +115,13 @@ pub(crate) trait ReadWireExt: GetReadBuf {
             return Err(IoError::new(
                 IoErrorKind::InvalidData,
                 "message length must be at least 4",
+            ));
+        } else if length - 4 > limit {
+            // `limit` above may be usize::MAX
+
+            return Err(IoError::new(
+                IoErrorKind::InvalidData,
+                "message length exceeds limit",
             ));
         }
         let body_length = length - 4;
