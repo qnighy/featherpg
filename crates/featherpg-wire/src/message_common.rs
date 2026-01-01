@@ -326,6 +326,8 @@ pub(crate) enum WireFormatError {
     #[error("incomplete startup packet")]
     StartupIncompleteLength,
     #[error("invalid length of startup packet")]
+    StartupTooShort,
+    #[error("invalid length of startup packet")]
     StartupTooLong,
     #[error("invalid length of startup packet")]
     StartupIncompleteBody,

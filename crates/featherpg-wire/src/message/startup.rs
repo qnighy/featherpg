@@ -71,13 +71,15 @@ impl StartupLikeMessage {
             as usize;
 
         if len < 4 {
+            return Err(StreamError::from(WireFormatError::StartupTooShort));
+        } else if len < 8 {
             return Err(StreamError::from(WireFormatError::StartupIncompleteLength));
-        } else if len > Self::MAX_STARTUP_PACKET_LENGTH {
+        } else if len > Self::MAX_STARTUP_PACKET_LENGTH + 4 {
             return Err(StreamError::from(WireFormatError::StartupTooLong));
         }
 
         let body = scanner
-            .read_bytes(len)
+            .read_bytes(len - 4)
             .map_err(|e| e.map(|_| WireFormatError::StartupIncompleteBody))?;
 
         let msg = Self::parse_body(body)?;
