@@ -149,35 +149,27 @@ where
     let limits = InitialRequestLimits {
         max_length: MAX_STARTUP_PACKET_LENGTH,
     };
-    let mut msg = reporting_format_error(&mut stream, |stream| {
-        InitialRequest::read_with_tls_lookahead(stream, &limits)
-    })?;
-
-    match msg {
-        InitialRequest::SSLRequest(_) => {
-            stream = handle_tls_request(stream, &mut server, false)?;
-            msg = reporting_format_error(&mut stream, |stream| {
-                InitialRequest::read_from(stream, &limits)
-            })?;
-        }
-        InitialRequest::DirectTLS(_) => {
-            stream = handle_tls_request(stream, &mut server, true)?;
-            msg = reporting_format_error(&mut stream, |stream| {
-                InitialRequest::read_from(stream, &limits)
-            })?;
-        }
-        // TODO: respond with ErrorResponse when applicable
-        InitialRequest::GSSENCRequest(_) => {
-            stream = handle_gssenc_request(stream, &mut server)?;
-            msg = reporting_format_error(&mut stream, |stream| {
-                InitialRequest::read_from(stream, &limits)
-            })?;
-        }
-        _ => {}
-    }
+    let mut initial = true;
 
     loop {
+        let msg = reporting_format_error(&mut stream, |stream| {
+            if initial {
+                InitialRequest::read_with_tls_lookahead(stream, &limits)
+            } else {
+                InitialRequest::read_from(stream, &limits)
+            }
+        })?;
+        initial = false;
         match msg {
+            InitialRequest::SSLRequest(_) => {
+                stream = handle_tls_request(stream, &mut server, false)?;
+            }
+            InitialRequest::DirectTLS(_) => {
+                stream = handle_tls_request(stream, &mut server, true)?;
+            }
+            InitialRequest::GSSENCRequest(_) => {
+                stream = handle_gssenc_request(stream, &mut server)?;
+            }
             InitialRequest::StartupMessage(msg) => {
                 // TODO: negotiate protocol
                 let backend_init = server.start(
@@ -194,21 +186,6 @@ where
                 let _session = backend_init.initialize_backend(&mut notifier)?;
                 // Session established; in a real server, we would now enter the main loop
                 break;
-            }
-            InitialRequest::SSLRequest(_) => {
-                RawSSLResponse::NoSSL(NoSSL).write_to(&mut stream)?;
-                stream.flush()?;
-                msg = reporting_format_error(&mut stream, |stream| {
-                    InitialRequest::read_from(stream, &limits)
-                })?;
-            }
-            InitialRequest::DirectTLS(_) => unreachable!("cannot receive DirectTLS here"),
-            InitialRequest::GSSENCRequest(_) => {
-                RawGSSENCResponse::NoGSSENC(NoGSSENC).write_to(&mut stream)?;
-                stream.flush()?;
-                msg = reporting_format_error(&mut stream, |stream| {
-                    InitialRequest::read_from(stream, &limits)
-                })?;
             }
             InitialRequest::CancelRequest(msg) => {
                 server.process_cancel(msg)?;
