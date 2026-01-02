@@ -2,11 +2,12 @@ use std::io::{Error as IoError, ErrorKind as IoErrorKind, Read, Result as IoResu
 
 use crate::{
     common::{BytesReader, GetReadBuf, VoidIO, WithExcess},
+    errors::{DiagnosticMessage, WireFormatError},
     io_util::{BufReaderWriter, Encryptable},
     message::{
-        AuthenticationOk, CancelRequest, GSSENCResponse as RawGSSENCResponse, InitialRequest,
-        InitialRequestLimits, NoGSSENC, NoSSL, SSLResponse as RawSSLResponse, StartupMessage,
-        StartupResponse, UseGSSENC, UseSSL,
+        AuthenticationOk, CancelRequest, ErrorResponse, GSSENCResponse as RawGSSENCResponse,
+        InitialRequest, InitialRequestLimits, NoGSSENC, NoSSL, SSLResponse as RawSSLResponse,
+        StartupMessage, StartupResponse, UseGSSENC, UseSSL,
     },
 };
 
@@ -148,9 +149,12 @@ where
     let limits = InitialRequestLimits {
         max_length: MAX_STARTUP_PACKET_LENGTH,
     };
-    let mut msg = InitialRequest::read_with_tls_lookahead(&mut stream, &limits)?;
+    let mut msg = reporting_format_error(&mut stream, |stream| {
+        InitialRequest::read_with_tls_lookahead(stream, &limits)
+    })?;
 
     match msg {
+        // TODO: respond with ErrorResponse when applicable
         InitialRequest::SSLRequest(_) => match server.tls()? {
             TLSResponse::UseTLS(upgrade) => {
                 RawSSLResponse::UseSSL(UseSSL).write_to(&mut stream)?;
@@ -158,12 +162,16 @@ where
                 let with_excess = prepare_upgrade(stream)?;
                 let tls_conn = upgrade.upgrade_to_tls(with_excess, ALPNMode::Optional)?;
                 stream = BufReaderWriter::new(Encryptable::UseSSL(tls_conn));
-                msg = InitialRequest::read_from(&mut stream, &limits)?;
+                msg = reporting_format_error(&mut stream, |stream| {
+                    InitialRequest::read_from(stream, &limits)
+                })?;
             }
             TLSResponse::NoTLS => {
                 RawSSLResponse::NoSSL(NoSSL).write_to(&mut stream)?;
                 stream.flush()?;
-                msg = InitialRequest::read_from(&mut stream, &limits)?;
+                msg = reporting_format_error(&mut stream, |stream| {
+                    InitialRequest::read_from(stream, &limits)
+                })?;
             }
         },
         InitialRequest::DirectTLS(_) => match server.tls()? {
@@ -171,7 +179,9 @@ where
                 let with_excess = prepare_upgrade(stream)?;
                 let tls_conn = upgrade.upgrade_to_tls(with_excess, ALPNMode::RequireALPN)?;
                 stream = BufReaderWriter::new(Encryptable::UseSSL(tls_conn));
-                msg = InitialRequest::read_from(&mut stream, &limits)?;
+                msg = reporting_format_error(&mut stream, |stream| {
+                    InitialRequest::read_from(stream, &limits)
+                })?;
             }
             TLSResponse::NoTLS => {
                 return Err(IoError::new(
@@ -180,6 +190,7 @@ where
                 ));
             }
         },
+        // TODO: respond with ErrorResponse when applicable
         InitialRequest::GSSENCRequest(_) => match server.gssenc()? {
             GSSENCResponse::UseGSSENC(upgrade) => {
                 RawGSSENCResponse::UseGSSENC(UseGSSENC).write_to(&mut stream)?;
@@ -187,12 +198,16 @@ where
                 let with_excess = prepare_upgrade(stream)?;
                 let gssenc_conn = upgrade.upgrade_to_gssenc(with_excess)?;
                 stream = BufReaderWriter::new(Encryptable::UseGSSENC(gssenc_conn));
-                msg = InitialRequest::read_from(&mut stream, &limits)?;
+                msg = reporting_format_error(&mut stream, |stream| {
+                    InitialRequest::read_from(stream, &limits)
+                })?;
             }
             GSSENCResponse::NoGSSENC => {
                 RawGSSENCResponse::NoGSSENC(NoGSSENC).write_to(&mut stream)?;
                 stream.flush()?;
-                msg = InitialRequest::read_from(&mut stream, &limits)?;
+                msg = reporting_format_error(&mut stream, |stream| {
+                    InitialRequest::read_from(stream, &limits)
+                })?;
             }
         },
         _ => {}
@@ -220,13 +235,17 @@ where
             InitialRequest::SSLRequest(_) => {
                 RawSSLResponse::NoSSL(NoSSL).write_to(&mut stream)?;
                 stream.flush()?;
-                msg = InitialRequest::read_from(&mut stream, &limits)?;
+                msg = reporting_format_error(&mut stream, |stream| {
+                    InitialRequest::read_from(stream, &limits)
+                })?;
             }
             InitialRequest::DirectTLS(_) => unreachable!("cannot receive DirectTLS here"),
             InitialRequest::GSSENCRequest(_) => {
                 RawGSSENCResponse::NoGSSENC(NoGSSENC).write_to(&mut stream)?;
                 stream.flush()?;
-                msg = InitialRequest::read_from(&mut stream, &limits)?;
+                msg = reporting_format_error(&mut stream, |stream| {
+                    InitialRequest::read_from(stream, &limits)
+                })?;
             }
             InitialRequest::CancelRequest(msg) => {
                 server.process_cancel(msg)?;
@@ -261,4 +280,33 @@ where
         stream,
         excess_read: BytesReader::from(read_buf),
     })
+}
+
+fn reporting_format_error<S, T, F>(stream: &mut S, f: F) -> IoResult<T>
+where
+    S: Write + ?Sized,
+    F: FnOnce(&mut S) -> IoResult<T>,
+{
+    match f(stream) {
+        Ok(value) => Ok(value),
+        Err(err) => {
+            if let Some(err) = WireFormatError::try_extract_ref(&err) {
+                let msg = ErrorResponse {
+                    error: DiagnosticMessage::from(err),
+                };
+                // Ignore nested errors while reporting the original error
+                report_error(stream, msg).ok();
+            }
+            Err(err)
+        }
+    }
+}
+
+fn report_error<W>(writer: &mut W, msg: ErrorResponse) -> IoResult<()>
+where
+    W: Write + ?Sized,
+{
+    msg.write_to(writer)?;
+    writer.flush()?;
+    Ok(())
 }

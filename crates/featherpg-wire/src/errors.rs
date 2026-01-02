@@ -123,8 +123,17 @@ pub(crate) enum WireFormatError {
     ErrorOrNoticeResponseMissingMessage,
 }
 
+fn describe_byte(byte: u8) -> String {
+    match byte {
+        b'\'' => "'\\''".to_owned(),
+        b'\\' => "'\\\\'".to_owned(),
+        0x20..=0x7E => format!("'{}'", byte as char),
+        _ => format!("'\\x{:02X}'", byte),
+    }
+}
+
 impl WireFormatError {
-    pub fn is_eof_error(&self) -> bool {
+    pub(crate) fn is_eof_error(&self) -> bool {
         matches!(
             self,
             // Only include errors that indicate EOF in the message stream,
@@ -134,6 +143,11 @@ impl WireFormatError {
                 | WireFormatError::ErrorOrNoticeResponseIncompleteLength
                 | WireFormatError::ErrorOrNoticeResponseIncompleteBody
         )
+    }
+
+    pub(crate) fn try_extract_ref(err: &IoError) -> Option<&WireFormatError> {
+        err.get_ref()
+            .and_then(|e| e.downcast_ref::<WireFormatError>())
     }
 }
 
@@ -148,11 +162,27 @@ impl From<WireFormatError> for IoError {
     }
 }
 
-fn describe_byte(byte: u8) -> String {
-    match byte {
-        b'\'' => "'\\''".to_owned(),
-        b'\\' => "'\\\\'".to_owned(),
-        0x20..=0x7E => format!("'{}'", byte as char),
-        _ => format!("'\\x{:02X}'", byte),
+impl<'a> From<&'a WireFormatError> for DiagnosticMessage {
+    fn from(err: &'a WireFormatError) -> Self {
+        DiagnosticMessage {
+            severity: DiagnosticSeverity::Fatal,
+            localized_severity: CString::new("FATAL").unwrap(),
+            code: CString::new("08P01").unwrap(), // protocol_violation
+            message: CString::new(err.to_string()).unwrap(),
+            detail: None,
+            hint: None,
+            position: None,
+            internal_position: None,
+            internal_query: None,
+            where_: None,
+            schema_name: None,
+            table_name: None,
+            column_name: None,
+            data_type_name: None,
+            constraint_name: None,
+            file: None,
+            line: None,
+            routine: None,
+        }
     }
 }
