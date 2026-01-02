@@ -108,10 +108,14 @@ impl InitialRequest {
         reader.read_sized(
             limits.max_length,
             ReadSizedErrors {
-                on_incomplete_length: &|| WireFormatError::StartupIncompleteLength,
-                on_negative_length: &|| WireFormatError::StartupTooShort,
-                on_length_limit_exceeded: &|| WireFormatError::StartupTooLong,
-                on_incomplete_body: &|| WireFormatError::StartupIncompleteBody,
+                on_incomplete_length: &|| WireFormatError::InitialRequestIncompleteLength,
+                on_negative_length: &|length| WireFormatError::InitialRequestNegativeLength {
+                    length,
+                },
+                on_length_limit_exceeded: &|length, max_length| {
+                    WireFormatError::InitialRequestTooLarge { length, max_length }
+                },
+                on_incomplete_body: &|| WireFormatError::InitialRequestIncompleteBody,
             },
             |reader| Self::read_body_from(reader),
         )
@@ -121,7 +125,7 @@ impl InitialRequest {
     where
         R: GetReadBuf + ?Sized,
     {
-        let version = reader.read_version(&|| WireFormatError::StartupIncompleteVersion)?;
+        let version = reader.read_version(&|| WireFormatError::InitialRequestIncompleteVersion)?;
 
         match version {
             SSLRequest::VERSION => Ok(SSLRequest::read_after_version(reader, version)?.into()),
@@ -268,12 +272,13 @@ impl StartupMessage {
         let mut guc_options = Vec::new();
 
         loop {
-            let name = reader.read_cstring(&|| WireFormatError::StartupPacketUnterminatedString)?;
+            let name =
+                reader.read_cstring(&|| WireFormatError::StartupMessageUnterminatedOptionName)?;
             if name.is_empty() {
                 break;
             }
             let value =
-                reader.read_cstring(&|| WireFormatError::StartupPacketUnterminatedString)?;
+                reader.read_cstring(&|| WireFormatError::StartupMessageUnterminatedOptionValue)?;
 
             match name.as_bytes() {
                 b"database" => database_name = Some(value),
@@ -285,10 +290,12 @@ impl StartupMessage {
                         Some(false) => replication = ReplicationMode::None,
                         Some(true) => replication = ReplicationMode::Replication,
                         None => {
-                            return Err(WireFormatError::InvalidReplicationParameter {
-                                value: value.to_string_lossy().into_owned(),
-                            }
-                            .into());
+                            return Err(
+                                WireFormatError::StartupMessageInvalidReplicationParameter {
+                                    value,
+                                }
+                                .into(),
+                            );
                         }
                     },
                 },
@@ -299,14 +306,14 @@ impl StartupMessage {
             }
         }
 
-        reader.read_eof(&|| WireFormatError::StartupPacketExtraBytes)?;
+        reader.read_eof(&|| WireFormatError::StartupMessageExtraBytes)?;
 
         if user_name.as_ref().is_some_and(|s| s.is_empty()) {
             user_name = None;
         }
 
         let Some(user_name) = user_name else {
-            return Err(WireFormatError::MissingUserName.into());
+            return Err(WireFormatError::StartupMessageMissingUserName.into());
         };
 
         if database_name.as_ref().is_some_and(|s| s.is_empty()) {
@@ -461,7 +468,7 @@ impl CancelRequest {
             reader.read_u32(&|| WireFormatError::CancelRequestIncompleteProcessId)? as i32;
         let secret_key = reader.read_remaining_bytes()?;
         if secret_key.is_empty() {
-            return Err(WireFormatError::CancelRequestMissingSecretKey.into());
+            return Err(WireFormatError::CancelRequestEmptySecretKey.into());
         } else if secret_key.len() > Self::MAX_SECRET_KEY_LENGTH {
             return Err(WireFormatError::CancelRequestSecretKeyTooLong {
                 length: secret_key.len(),

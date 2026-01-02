@@ -218,10 +218,14 @@ where
     reader.read_sized(
         usize::MAX,
         ReadSizedErrors {
-            on_incomplete_length: &|| WireFormatError::MessageTooShort,
-            on_negative_length: &|| WireFormatError::MessageTooShort,
-            on_length_limit_exceeded: &|| WireFormatError::MessageTooLong,
-            on_incomplete_body: &|| WireFormatError::IncompleteMessageBody,
+            on_incomplete_length: &|| WireFormatError::ErrorOrNoticeResponseIncompleteLength,
+            on_negative_length: &|length| WireFormatError::ErrorOrNoticeResponseNegativeLength {
+                length,
+            },
+            on_length_limit_exceeded: &|length, max_length| {
+                WireFormatError::ErrorOrNoticeResponseTooLarge { length, max_length }
+            },
+            on_incomplete_body: &|| WireFormatError::ErrorOrNoticeResponseIncompleteBody,
         },
         |reader| read_diagnostic_body(reader),
     )
@@ -251,13 +255,15 @@ where
     let mut routine: Option<CString> = None;
 
     loop {
-        let field_type = reader.read_u8(&|| WireFormatError::ErrorOrNoticeUnterminated)?;
+        let field_type =
+            reader.read_u8(&|| WireFormatError::ErrorOrNoticeResponseUnterminatedFieldList)?;
 
         if field_type == b'\0' {
             break;
         }
 
-        let value = reader.read_cstring(&|| WireFormatError::ErrorOrNoticeUnterminated)?;
+        let value = reader
+            .read_cstring(&|| WireFormatError::ErrorOrNoticeResponseUnterminatedFieldValue)?;
 
         match field_type {
             FIELD_LOCALIZED_SEVERITY => {
@@ -274,10 +280,12 @@ where
                     b"FATAL" => DiagnosticSeverity::Fatal,
                     b"PANIC" => DiagnosticSeverity::Panic,
                     _ => {
-                        return Err(WireFormatError::ErrorOrNoticeUnknownDiagnosticSeverity {
-                            severity: value,
-                        }
-                        .into());
+                        return Err(
+                            WireFormatError::ErrorOrNoticeResponseUnknownDiagnosticSeverity {
+                                severity: value,
+                            }
+                            .into(),
+                        );
                     }
                 });
             }
@@ -296,24 +304,28 @@ where
             FIELD_POSITION => {
                 let n = value
                     .to_str()
-                    .map_err(|_| WireFormatError::ErrorOrNoticeInvalidInteger {
-                        position_str: value.to_owned(),
+                    .map_err(|_| WireFormatError::ErrorOrNoticeResponseInvalidInteger {
+                        name: "position".to_string(),
+                        value: value.clone(),
                     })?
                     .parse::<i32>()
-                    .map_err(|_| WireFormatError::ErrorOrNoticeInvalidInteger {
-                        position_str: value.to_owned(),
+                    .map_err(|_| WireFormatError::ErrorOrNoticeResponseInvalidInteger {
+                        name: "position".to_string(),
+                        value: value.clone(),
                     })?;
                 position = Some(n);
             }
             FIELD_INTERNAL_POSITION => {
                 let n = value
                     .to_str()
-                    .map_err(|_| WireFormatError::ErrorOrNoticeInvalidInteger {
-                        position_str: value.to_owned(),
+                    .map_err(|_| WireFormatError::ErrorOrNoticeResponseInvalidInteger {
+                        name: "internal_position".to_string(),
+                        value: value.clone(),
                     })?
                     .parse::<i32>()
-                    .map_err(|_| WireFormatError::ErrorOrNoticeInvalidInteger {
-                        position_str: value.to_owned(),
+                    .map_err(|_| WireFormatError::ErrorOrNoticeResponseInvalidInteger {
+                        name: "internal_position".to_string(),
+                        value: value.clone(),
                     })?;
                 internal_position = Some(n);
             }
@@ -344,12 +356,14 @@ where
             FIELD_LINE => {
                 let n = value
                     .to_str()
-                    .map_err(|_| WireFormatError::ErrorOrNoticeInvalidInteger {
-                        position_str: value.to_owned(),
+                    .map_err(|_| WireFormatError::ErrorOrNoticeResponseInvalidInteger {
+                        name: "line".to_string(),
+                        value: value.clone(),
                     })?
                     .parse::<i32>()
-                    .map_err(|_| WireFormatError::ErrorOrNoticeInvalidInteger {
-                        position_str: value.to_owned(),
+                    .map_err(|_| WireFormatError::ErrorOrNoticeResponseInvalidInteger {
+                        name: "line".to_string(),
+                        value: value.clone(),
                     })?;
                 line = Some(n);
             }
@@ -363,16 +377,16 @@ where
     }
 
     let Some(severity) = severity else {
-        return Err(WireFormatError::ErrorOrNoticeMissingSeverity.into());
+        return Err(WireFormatError::ErrorOrNoticeResponseMissingSeverity.into());
     };
     let Some(localized_severity) = localized_severity else {
-        return Err(WireFormatError::ErrorOrNoticeMissingLocalizedSeverity.into());
+        return Err(WireFormatError::ErrorOrNoticeResponseMissingLocalizedSeverity.into());
     };
     let Some(code) = code else {
-        return Err(WireFormatError::ErrorOrNoticeMissingCode.into());
+        return Err(WireFormatError::ErrorOrNoticeResponseMissingCode.into());
     };
     let Some(message) = message else {
-        return Err(WireFormatError::ErrorOrNoticeMissingMessage.into());
+        return Err(WireFormatError::ErrorOrNoticeResponseMissingMessage.into());
     };
 
     Ok(DiagnosticMessage {

@@ -56,64 +56,71 @@ pub enum DiagnosticSeverity {
 
 #[derive(Debug, Error)]
 pub(crate) enum WireFormatError {
-    // Found in backend_startup.c, ProcessStartupPacket
-    #[error("incomplete startup packet")]
-    StartupIncompleteLength,
-    #[error("invalid length of startup packet")]
-    StartupTooShort,
-    #[error("invalid length of startup packet")]
-    StartupTooLong,
-    #[error("invalid length of startup packet")]
-    StartupIncompleteBody,
-    #[error("invalid length of startup packet")]
-    StartupIncompleteVersion,
-    #[error("invalid startup packet layout: expected terminator as last byte")]
-    StartupPacketExtraBytes,
-    #[error("invalid startup packet layout: expected terminator as last byte")]
-    StartupPacketUnterminatedString,
-    #[error("invalid value for parameter \"replication\": \"{value}\"")]
-    InvalidReplicationParameter { value: String },
-    #[error("no PostgreSQL user name specified in startup packet")]
-    MissingUserName,
-    // Not found in PostgreSQL
-    #[error("invalid SSL/TLS request packet layout: expected empty body")]
+    #[error("unexpected EOF while reading InitialRequest length")]
+    InitialRequestIncompleteLength,
+    #[error("found negative length {length} in InitialRequest")]
+    InitialRequestNegativeLength { length: isize },
+    #[error("InitialRequest too large (found {length}, limit {max_length})")]
+    InitialRequestTooLarge { length: usize, max_length: usize },
+    #[error("unexpected EOF while reading InitialRequest body")]
+    InitialRequestIncompleteBody,
+    #[error("packet too short for InitialRequest version")]
+    InitialRequestIncompleteVersion,
+
+    #[error("unterminated option name in StartupMessage")]
+    StartupMessageUnterminatedOptionName,
+    #[error("unterminated option value in StartupMessage")]
+    StartupMessageUnterminatedOptionValue,
+    #[error("invalid value for parameter \"replication\": \"{}\"", value.to_string_lossy())]
+    StartupMessageInvalidReplicationParameter { value: CString },
+    #[error("extra bytes found in StartupMessage")]
+    StartupMessageExtraBytes,
+    #[error("missing or empty user option in StartupMessage")]
+    StartupMessageMissingUserName,
+
+    #[error("extra bytes found in SSLRequest")]
     SSLRequestExtraBytes,
-    // Not found in PostgreSQL
-    #[error("invalid GSSENC request packet layout: expected empty body")]
+
+    #[error("extra bytes found in GSSENCRequest")]
     GSSENCRequestExtraBytes,
-    #[error("invalid length of cancel request packet")]
+
+    #[error("packet too short for CancelRequest process_id")]
     CancelRequestIncompleteProcessId,
-    #[error("invalid length of cancel key in cancel request packet")]
-    CancelRequestMissingSecretKey,
-    #[error("invalid length of cancel key in cancel request packet")]
+    #[error("secret key must not be empty in CancelRequest")]
+    CancelRequestEmptySecretKey,
+    #[error("secret key too long in CancelRequest (found {length}, limit {max_length})")]
     CancelRequestSecretKeyTooLong { length: usize, max_length: usize },
 
-    #[error("unterminated ErrorResponse or NoticeResponse message")]
-    ErrorOrNoticeUnterminated,
-    #[error("unknown diagnostic severity in ErrorResponse or NoticeResponse message")]
-    ErrorOrNoticeUnknownDiagnosticSeverity { severity: CString },
-    #[error("invalid integer field in ErrorResponse or NoticeResponse message")]
-    ErrorOrNoticeInvalidInteger { position_str: CString },
-    #[error("missing severity field in ErrorResponse or NoticeResponse message")]
-    ErrorOrNoticeMissingSeverity,
-    #[error("missing localized severity field in ErrorResponse or NoticeResponse message")]
-    ErrorOrNoticeMissingLocalizedSeverity,
-    #[error("missing code field in ErrorResponse or NoticeResponse message")]
-    ErrorOrNoticeMissingCode,
-    #[error("missing message field in ErrorResponse or NoticeResponse message")]
-    ErrorOrNoticeMissingMessage,
+    #[error("unknown type byte for SSL response: {} (expected S, N, or E)", describe_byte(*type_byte))]
+    SSLResponseUnknownTypeByte { type_byte: u8 },
 
-    #[error("message too short")]
-    MessageTooShort,
-    #[error("message too long")]
-    MessageTooLong,
-    #[error("incomplete message body")]
-    IncompleteMessageBody,
+    #[error("unknown type byte for GSSENC response: {} (expected G, N, or E)", describe_byte(*type_byte))]
+    GSSENCResponseUnknownTypeByte { type_byte: u8 },
 
-    #[error("unknown type byte for SSL response: {type_byte:02X}")]
-    InvalidSSLResponseTypeByte { type_byte: u8 },
-    #[error("unknown type byte for GSSENC response: {type_byte:02X}")]
-    InvalidGSSENCResponseTypeByte { type_byte: u8 },
+    #[error("unexpected EOF while reading ErrorResponse/NoticeResponse length")]
+    ErrorOrNoticeResponseIncompleteLength,
+    #[error("found negative length {length} in ErrorResponse/NoticeResponse")]
+    ErrorOrNoticeResponseNegativeLength { length: isize },
+    #[error("ErrorResponse/NoticeResponse too large (found {length}, limit {max_length})")]
+    ErrorOrNoticeResponseTooLarge { length: usize, max_length: usize },
+    #[error("unexpected EOF while reading ErrorResponse/NoticeResponse body")]
+    ErrorOrNoticeResponseIncompleteBody,
+    #[error("unterminated field list in ErrorResponse/NoticeResponse")]
+    ErrorOrNoticeResponseUnterminatedFieldList,
+    #[error("unterminated field value in ErrorResponse/NoticeResponse")]
+    ErrorOrNoticeResponseUnterminatedFieldValue,
+    #[error("unknown diagnostic severity in ErrorResponse/NoticeResponse (found {})", severity.to_string_lossy())]
+    ErrorOrNoticeResponseUnknownDiagnosticSeverity { severity: CString },
+    #[error("invalid integer field in ErrorResponse/NoticeResponse message (field {name}, found {})", value.to_string_lossy())]
+    ErrorOrNoticeResponseInvalidInteger { name: String, value: CString },
+    #[error("missing severity field in ErrorResponse/NoticeResponse")]
+    ErrorOrNoticeResponseMissingSeverity,
+    #[error("missing localized severity field in ErrorResponse/NoticeResponse")]
+    ErrorOrNoticeResponseMissingLocalizedSeverity,
+    #[error("missing code field in ErrorResponse/NoticeResponse")]
+    ErrorOrNoticeResponseMissingCode,
+    #[error("missing message field in ErrorResponse/NoticeResponse")]
+    ErrorOrNoticeResponseMissingMessage,
 }
 
 impl WireFormatError {
@@ -122,9 +129,10 @@ impl WireFormatError {
             self,
             // Only include errors that indicate EOF in the message stream,
             // not EOF in the message body.
-            WireFormatError::StartupIncompleteLength
-                | WireFormatError::MessageTooShort
-                | WireFormatError::IncompleteMessageBody
+            WireFormatError::InitialRequestIncompleteLength
+                | WireFormatError::InitialRequestIncompleteBody
+                | WireFormatError::ErrorOrNoticeResponseIncompleteLength
+                | WireFormatError::ErrorOrNoticeResponseIncompleteBody
         )
     }
 }
@@ -137,5 +145,14 @@ impl From<WireFormatError> for IoError {
             IoErrorKind::InvalidData
         };
         IoError::new(kind, err)
+    }
+}
+
+fn describe_byte(byte: u8) -> String {
+    match byte {
+        b'\'' => "'\\''".to_owned(),
+        b'\\' => "'\\\\'".to_owned(),
+        0x20..=0x7E => format!("'{}'", byte as char),
+        _ => format!("'\\x{:02X}'", byte),
     }
 }

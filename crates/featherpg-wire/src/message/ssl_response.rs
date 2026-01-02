@@ -49,7 +49,7 @@ impl SSLResponse {
                 let error = ErrorResponse::read_after_type_byte(reader)?;
                 Ok(SSLResponse::ErrorResponse(error))
             }
-            _ => Err(WireFormatError::InvalidSSLResponseTypeByte { type_byte }.into()),
+            _ => Err(WireFormatError::SSLResponseUnknownTypeByte { type_byte }.into()),
         }
     }
 }

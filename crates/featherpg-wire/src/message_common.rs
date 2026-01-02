@@ -114,17 +114,18 @@ pub(crate) trait ReadWireExt: GetReadBuf {
     where
         F: FnOnce(&mut &[u8]) -> IoResult<T>,
     {
-        let length = self.read_u32(on_eof.on_incomplete_length)? as usize;
-        if length < 4 {
-            return Err((on_eof.on_negative_length)().into());
-        } else if length - 4 > limit {
+        let length_plus_4 = self.read_u32(on_eof.on_incomplete_length)? as usize;
+        if length_plus_4 < 4 {
+            return Err((on_eof.on_negative_length)(length_plus_4 as isize - 4).into());
+        }
+        let length = length_plus_4 - 4;
+        if length > limit {
             // `limit` above may be usize::MAX
 
-            return Err((on_eof.on_length_limit_exceeded)().into());
+            return Err((on_eof.on_length_limit_exceeded)(length, limit).into());
         }
-        let body_length = length - 4;
 
-        let mut buf = vec![0u8; body_length];
+        let mut buf = vec![0u8; length];
         self.read_bytes(&mut buf, on_eof.on_incomplete_body)?;
 
         let mut slice: &[u8] = &buf;
@@ -164,7 +165,8 @@ impl<T: GetReadBuf + ?Sized> ReadWireExt for T {}
 #[derive(Clone, Copy)]
 pub(crate) struct ReadSizedErrors<'a> {
     pub(crate) on_incomplete_length: &'a dyn Fn() -> WireFormatError,
-    pub(crate) on_negative_length: &'a dyn Fn() -> WireFormatError,
-    pub(crate) on_length_limit_exceeded: &'a dyn Fn() -> WireFormatError,
+    pub(crate) on_negative_length: &'a dyn Fn(/* length */ isize) -> WireFormatError,
+    pub(crate) on_length_limit_exceeded:
+        &'a dyn Fn(/* length_found */ usize, /* max_length */ usize) -> WireFormatError,
     pub(crate) on_incomplete_body: &'a dyn Fn() -> WireFormatError,
 }
