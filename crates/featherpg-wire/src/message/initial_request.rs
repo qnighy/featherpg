@@ -76,35 +76,31 @@ impl InitialRequest {
         }
     }
 
-    pub fn read_with_tls_lookahead<R>(
+    pub fn read_from<R>(
         reader: &mut R,
         limits: &InitialRequestLimits,
+        state: InitialRequestState,
     ) -> IoResult<Self>
     where
         R: GetReadBuf + ?Sized,
     {
-        // Lookahead TLS signature, assuming the reader can at least hold
-        // 1 byte in its buffer.
-        let buf = {
-            let buf = reader.read_buffer();
-            if buf.is_empty() {
-                reader.fill_buf()?
-            } else {
-                buf
+        if state == InitialRequestState::ConnectionStart {
+            // Lookahead TLS signature, assuming the reader can at least hold
+            // 1 byte in its buffer.
+            let buf = {
+                let buf = reader.read_buffer();
+                if buf.is_empty() {
+                    reader.fill_buf()?
+                } else {
+                    buf
+                }
+            };
+            if buf.first() == Some(&DirectTLS::TLS_HANDSHAKE_SIGNATURE) {
+                // Detected DirectTLS handshake signature.
+                // Do not consume any bytes from the reader and return DirectTLS.
+                return Ok(InitialRequest::DirectTLS(DirectTLS));
             }
-        };
-        if buf.first() == Some(&DirectTLS::TLS_HANDSHAKE_SIGNATURE) {
-            // Detected DirectTLS handshake signature.
-            // Do not consume any bytes from the reader and return DirectTLS.
-            return Ok(InitialRequest::DirectTLS(DirectTLS));
         }
-        Self::read_from(reader, limits)
-    }
-
-    pub fn read_from<R>(reader: &mut R, limits: &InitialRequestLimits) -> IoResult<Self>
-    where
-        R: GetReadBuf + ?Sized,
-    {
         reader.read_sized(
             limits.max_length,
             ReadSizedErrors {
@@ -138,6 +134,18 @@ impl InitialRequest {
             _ => Ok(StartupMessage::read_after_version(reader, version)?.into()),
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum InitialRequestState {
+    /// At the start of the cleartext connection.
+    ///
+    /// May receive DirectTLS in addition to other messages.
+    ConnectionStart,
+    /// After one or more encryption negotiations.
+    ///
+    /// DirectTLS is not detected here.
+    Other,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

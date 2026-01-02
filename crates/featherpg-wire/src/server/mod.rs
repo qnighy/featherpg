@@ -6,8 +6,8 @@ use crate::{
     io_util::{BufReaderWriter, Encryptable},
     message::{
         AuthenticationOk, CancelRequest, ErrorResponse, GSSENCResponse as RawGSSENCResponse,
-        InitialRequest, InitialRequestLimits, NoGSSENC, NoSSL, SSLResponse as RawSSLResponse,
-        StartupMessage, StartupResponse, UseGSSENC, UseSSL,
+        InitialRequest, InitialRequestLimits, InitialRequestState, NoGSSENC, NoSSL,
+        SSLResponse as RawSSLResponse, StartupMessage, StartupResponse, UseGSSENC, UseSSL,
     },
 };
 
@@ -149,17 +149,13 @@ where
     let limits = InitialRequestLimits {
         max_length: MAX_STARTUP_PACKET_LENGTH,
     };
-    let mut initial = true;
+    let mut state = InitialRequestState::ConnectionStart;
 
     loop {
         let msg = reporting_format_error(&mut stream, |stream| {
-            if initial {
-                InitialRequest::read_with_tls_lookahead(stream, &limits)
-            } else {
-                InitialRequest::read_from(stream, &limits)
-            }
+            InitialRequest::read_from(stream, &limits, state)
         })?;
-        initial = false;
+        state = InitialRequestState::Other;
         match msg {
             InitialRequest::SSLRequest(_) => {
                 stream = handle_tls_request(stream, &mut server, false)?;
