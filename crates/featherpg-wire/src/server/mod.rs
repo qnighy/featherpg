@@ -201,6 +201,7 @@ where
     loop {
         match msg {
             InitialRequest::StartupMessage(msg) => {
+                // TODO: negotiate protocol
                 let backend_init = server.start(
                     msg,
                     &mut Authenticator {
