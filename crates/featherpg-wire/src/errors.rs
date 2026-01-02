@@ -116,8 +116,26 @@ pub(crate) enum WireFormatError {
     InvalidGSSENCResponseTypeByte { type_byte: u8 },
 }
 
+impl WireFormatError {
+    pub fn is_eof_error(&self) -> bool {
+        matches!(
+            self,
+            // Only include errors that indicate EOF in the message stream,
+            // not EOF in the message body.
+            WireFormatError::StartupIncompleteLength
+                | WireFormatError::MessageTooShort
+                | WireFormatError::IncompleteMessageBody
+        )
+    }
+}
+
 impl From<WireFormatError> for IoError {
     fn from(err: WireFormatError) -> Self {
-        IoError::new(IoErrorKind::InvalidData, err)
+        let kind = if err.is_eof_error() {
+            IoErrorKind::UnexpectedEof
+        } else {
+            IoErrorKind::InvalidData
+        };
+        IoError::new(kind, err)
     }
 }
