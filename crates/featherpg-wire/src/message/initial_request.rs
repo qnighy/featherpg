@@ -863,7 +863,7 @@ mod tests {
 
         assert_eq!(
             err.to_string(),
-            "invalid startup packet layout: expected terminator as last byte"
+            "unterminated option name in StartupMessage"
         );
     }
 
@@ -874,7 +874,7 @@ mod tests {
 
         assert_eq!(
             err.to_string(),
-            "invalid startup packet layout: expected terminator as last byte"
+            "unterminated option value in StartupMessage"
         );
     }
 
@@ -883,10 +883,7 @@ mod tests {
         let data = &b"\x00\x03\x00\x00user\0testuser\0database\0testdb\0\0extra"[..];
         let err = from_bytes(data).unwrap_err();
 
-        assert_eq!(
-            err.to_string(),
-            "invalid startup packet layout: expected terminator as last byte"
-        );
+        assert_eq!(err.to_string(), "extra bytes found in StartupMessage");
     }
 
     #[test]
@@ -896,7 +893,7 @@ mod tests {
 
         assert_eq!(
             err.to_string(),
-            "no PostgreSQL user name specified in startup packet"
+            "missing or empty user option in StartupMessage"
         );
     }
 
@@ -907,7 +904,7 @@ mod tests {
 
         assert_eq!(
             err.to_string(),
-            "no PostgreSQL user name specified in startup packet"
+            "missing or empty user option in StartupMessage"
         );
     }
 
@@ -934,10 +931,7 @@ mod tests {
         let data = &b"\x04\xD2\x16\x2Ffoo"[..];
         let err = from_bytes(data).unwrap_err();
 
-        assert_eq!(
-            err.to_string(),
-            "invalid SSL/TLS request packet layout: expected empty body"
-        );
+        assert_eq!(err.to_string(), "extra bytes found in SSLRequest");
     }
 
     #[test]
@@ -963,10 +957,7 @@ mod tests {
         let data = &b"\x04\xD2\x16\x30foo"[..];
         let err = from_bytes(data).unwrap_err();
 
-        assert_eq!(
-            err.to_string(),
-            "invalid GSSENC request packet layout: expected empty body"
-        );
+        assert_eq!(err.to_string(), "extra bytes found in GSSENCRequest");
     }
 
     #[test]
@@ -1067,7 +1058,10 @@ mod tests {
         let data = &b"\x04\xD2\x16\x2E\x00\x00\x30"[..];
         let err = from_bytes(data).unwrap_err();
 
-        assert_eq!(err.to_string(), "invalid length of cancel request packet");
+        assert_eq!(
+            err.to_string(),
+            "packet too short for CancelRequest process_id"
+        );
     }
 
     #[test]
@@ -1078,7 +1072,7 @@ mod tests {
 
         assert_eq!(
             err.to_string(),
-            "invalid length of cancel key in cancel request packet"
+            "secret key must not be empty in CancelRequest"
         );
     }
 
@@ -1091,7 +1085,7 @@ mod tests {
 
         assert_eq!(
             err.to_string(),
-            "invalid length of cancel key in cancel request packet",
+            "secret key too long in CancelRequest (found 257, limit 256)",
         );
     }
 }
