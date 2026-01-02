@@ -7,6 +7,7 @@ use crate::{
     ProtocolVersion,
     common::GetReadBuf,
     errors::WireFormatError,
+    message::ImplicitTerminate,
     message_common::{ReadSizedErrors, ReadWireExt, WriteWireExt},
 };
 
@@ -18,6 +19,7 @@ pub enum InitialRequest {
     DirectTLS(DirectTLS),
     GSSENCRequest(GSSENCRequest),
     CancelRequest(CancelRequest),
+    ImplicitTerminate(ImplicitTerminate),
 }
 
 impl From<StartupMessage> for InitialRequest {
@@ -50,6 +52,12 @@ impl From<CancelRequest> for InitialRequest {
     }
 }
 
+impl From<ImplicitTerminate> for InitialRequest {
+    fn from(msg: ImplicitTerminate) -> Self {
+        InitialRequest::ImplicitTerminate(msg)
+    }
+}
+
 impl InitialRequest {
     pub fn write_to<W>(&self, writer: &mut W) -> IoResult<()>
     where
@@ -58,6 +66,10 @@ impl InitialRequest {
         if matches!(self, InitialRequest::DirectTLS(_)) {
             // DirectTLS itself has no body to write.
             // It is the caller's responsibility to write the TLS handshake bytes.
+            return Ok(());
+        }
+        if matches!(self, InitialRequest::ImplicitTerminate(_)) {
+            // ImplicitTerminate has no body to write.
             return Ok(());
         }
         writer.write_sized(|writer| self.write_body_to(writer))
@@ -73,6 +85,9 @@ impl InitialRequest {
             InitialRequest::DirectTLS(_msg) => panic!("Do not call write_body_to for DirectTLS"),
             InitialRequest::GSSENCRequest(msg) => msg.write_body_to(writer),
             InitialRequest::CancelRequest(msg) => msg.write_body_to(writer),
+            InitialRequest::ImplicitTerminate(_msg) => {
+                panic!("Do not call write_body_to for ImplicitTerminate")
+            }
         }
     }
 
@@ -84,17 +99,15 @@ impl InitialRequest {
     where
         R: GetReadBuf + ?Sized,
     {
+        let is_eof = reader.read_is_eof()?;
+        if is_eof {
+            return Ok(ImplicitTerminate.into());
+        }
+
         if state == InitialRequestState::ConnectionStart {
-            // Lookahead TLS signature, assuming the reader can at least hold
-            // 1 byte in its buffer.
-            let buf = {
-                let buf = reader.read_buffer();
-                if buf.is_empty() {
-                    reader.fill_buf()?
-                } else {
-                    buf
-                }
-            };
+            // The buffer should have been filled due to read_is_eof above.
+            // And by "filled" we assume at least one byte is available.
+            let buf = reader.read_buffer();
             if buf.first() == Some(&DirectTLS::TLS_HANDSHAKE_SIGNATURE) {
                 // Detected DirectTLS handshake signature.
                 // Do not consume any bytes from the reader and return DirectTLS.

@@ -187,6 +187,9 @@ where
                 server.process_cancel(msg)?;
                 return Ok(());
             }
+            InitialRequest::ImplicitTerminate(_) => {
+                return Ok(());
+            }
         }
     }
 
