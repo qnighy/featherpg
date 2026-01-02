@@ -154,62 +154,25 @@ where
     })?;
 
     match msg {
+        InitialRequest::SSLRequest(_) => {
+            stream = handle_tls_request(stream, &mut server, false)?;
+            msg = reporting_format_error(&mut stream, |stream| {
+                InitialRequest::read_from(stream, &limits)
+            })?;
+        }
+        InitialRequest::DirectTLS(_) => {
+            stream = handle_tls_request(stream, &mut server, true)?;
+            msg = reporting_format_error(&mut stream, |stream| {
+                InitialRequest::read_from(stream, &limits)
+            })?;
+        }
         // TODO: respond with ErrorResponse when applicable
-        InitialRequest::SSLRequest(_) => match server.tls()? {
-            TLSResponse::UseTLS(upgrade) => {
-                RawSSLResponse::UseSSL(UseSSL).write_to(&mut stream)?;
-                stream.flush()?;
-                let with_excess = prepare_upgrade(stream)?;
-                let tls_conn = upgrade.upgrade_to_tls(with_excess, ALPNMode::Optional)?;
-                stream = BufReaderWriter::new(Encryptable::UseSSL(tls_conn));
-                msg = reporting_format_error(&mut stream, |stream| {
-                    InitialRequest::read_from(stream, &limits)
-                })?;
-            }
-            TLSResponse::NoTLS => {
-                RawSSLResponse::NoSSL(NoSSL).write_to(&mut stream)?;
-                stream.flush()?;
-                msg = reporting_format_error(&mut stream, |stream| {
-                    InitialRequest::read_from(stream, &limits)
-                })?;
-            }
-        },
-        InitialRequest::DirectTLS(_) => match server.tls()? {
-            TLSResponse::UseTLS(upgrade) => {
-                let with_excess = prepare_upgrade(stream)?;
-                let tls_conn = upgrade.upgrade_to_tls(with_excess, ALPNMode::RequireALPN)?;
-                stream = BufReaderWriter::new(Encryptable::UseSSL(tls_conn));
-                msg = reporting_format_error(&mut stream, |stream| {
-                    InitialRequest::read_from(stream, &limits)
-                })?;
-            }
-            TLSResponse::NoTLS => {
-                return Err(IoError::new(
-                    IoErrorKind::Other,
-                    "Direct TLS connection attempted but not supported by server",
-                ));
-            }
-        },
-        // TODO: respond with ErrorResponse when applicable
-        InitialRequest::GSSENCRequest(_) => match server.gssenc()? {
-            GSSENCResponse::UseGSSENC(upgrade) => {
-                RawGSSENCResponse::UseGSSENC(UseGSSENC).write_to(&mut stream)?;
-                stream.flush()?;
-                let with_excess = prepare_upgrade(stream)?;
-                let gssenc_conn = upgrade.upgrade_to_gssenc(with_excess)?;
-                stream = BufReaderWriter::new(Encryptable::UseGSSENC(gssenc_conn));
-                msg = reporting_format_error(&mut stream, |stream| {
-                    InitialRequest::read_from(stream, &limits)
-                })?;
-            }
-            GSSENCResponse::NoGSSENC => {
-                RawGSSENCResponse::NoGSSENC(NoGSSENC).write_to(&mut stream)?;
-                stream.flush()?;
-                msg = reporting_format_error(&mut stream, |stream| {
-                    InitialRequest::read_from(stream, &limits)
-                })?;
-            }
-        },
+        InitialRequest::GSSENCRequest(_) => {
+            stream = handle_gssenc_request(stream, &mut server)?;
+            msg = reporting_format_error(&mut stream, |stream| {
+                InitialRequest::read_from(stream, &limits)
+            })?;
+        }
         _ => {}
     }
 
@@ -280,6 +243,89 @@ where
         stream,
         excess_read: BytesReader::from(read_buf),
     })
+}
+
+type ServiceEncryptable<S, Startup> = Encryptable<
+    S,
+    <<Startup as NegotiateEncryption<S>>::UpgradeToTLS as UpgradeToTLS<S>>::TLSConn,
+    <<Startup as NegotiateEncryption<S>>::UpgradeToGSSENC as UpgradeToGSSENC<S>>::GSSENCConn,
+>;
+
+fn handle_tls_request<S, Startup>(
+    mut stream: BufReaderWriter<ServiceEncryptable<S, Startup>>,
+    server: &mut Startup,
+    is_direct_tls: bool,
+) -> IoResult<BufReaderWriter<ServiceEncryptable<S, Startup>>>
+where
+    S: Read + Write,
+    Startup: NegotiateEncryption<S>,
+{
+    let server_result = if matches!(stream.get_ref(), Encryptable::Cleartext(_)) {
+        server.tls()
+    } else {
+        // Do not upgrade connection twice.
+        // Pretend as if the server app responded with NoTLS.
+        Ok(TLSResponse::NoTLS)
+    };
+
+    // TODO: respond with ErrorResponse when applicable
+    match server_result? {
+        TLSResponse::UseTLS(upgrade) => {
+            if !is_direct_tls {
+                RawSSLResponse::UseSSL(UseSSL).write_to(&mut stream)?;
+                stream.flush()?;
+            }
+            let with_excess = prepare_upgrade(stream)?;
+            let tls_conn = upgrade.upgrade_to_tls(with_excess, ALPNMode::Optional)?;
+            stream = BufReaderWriter::new(Encryptable::UseSSL(tls_conn));
+        }
+        TLSResponse::NoTLS => {
+            if is_direct_tls {
+                return Err(IoError::new(
+                    IoErrorKind::Other,
+                    "Direct TLS connection attempted but not supported by server",
+                ));
+            }
+            RawSSLResponse::NoSSL(NoSSL).write_to(&mut stream)?;
+            stream.flush()?;
+        }
+    }
+
+    Ok(stream)
+}
+
+fn handle_gssenc_request<S, Startup>(
+    mut stream: BufReaderWriter<ServiceEncryptable<S, Startup>>,
+    server: &mut Startup,
+) -> IoResult<BufReaderWriter<ServiceEncryptable<S, Startup>>>
+where
+    S: Read + Write,
+    Startup: NegotiateEncryption<S>,
+{
+    let server_result = if matches!(stream.get_ref(), Encryptable::Cleartext(_)) {
+        server.gssenc()
+    } else {
+        // Do not upgrade connection twice.
+        // Pretend as if the server app responded with NoGSSENC.
+        Ok(GSSENCResponse::NoGSSENC)
+    };
+
+    // TODO: respond with ErrorResponse when applicable
+    match server_result? {
+        GSSENCResponse::UseGSSENC(upgrade) => {
+            RawGSSENCResponse::UseGSSENC(UseGSSENC).write_to(&mut stream)?;
+            stream.flush()?;
+            let with_excess = prepare_upgrade(stream)?;
+            let gssenc_conn = upgrade.upgrade_to_gssenc(with_excess)?;
+            stream = BufReaderWriter::new(Encryptable::UseGSSENC(gssenc_conn));
+        }
+        GSSENCResponse::NoGSSENC => {
+            RawGSSENCResponse::NoGSSENC(NoGSSENC).write_to(&mut stream)?;
+            stream.flush()?;
+        }
+    }
+
+    Ok(stream)
 }
 
 fn reporting_format_error<S, T, F>(stream: &mut S, f: F) -> IoResult<T>
