@@ -5,8 +5,8 @@ use std::{
 
 use crate::{
     common::GetReadBuf,
-    errors::{DiagnosticMessage, DiagnosticSeverity},
-    message_common::{ReadWireExt, WireFormatError, WriteWireExt},
+    errors::{DiagnosticMessage, DiagnosticSeverity, WireFormatError},
+    message_common::{ReadWireExt, WriteWireExt},
 };
 
 /// Indicates an error that occurred during processing of a client message.

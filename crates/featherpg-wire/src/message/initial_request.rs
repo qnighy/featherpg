@@ -6,7 +6,8 @@ use std::{
 use crate::{
     ProtocolVersion,
     common::GetReadBuf,
-    message_common::{ReadWireExt, WireFormatError, WriteWireExt},
+    errors::WireFormatError,
+    message_common::{ReadWireExt, WriteWireExt},
 };
 
 /// A message sent by the client as the first message on a new connection.

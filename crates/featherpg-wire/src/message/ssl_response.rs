@@ -4,9 +4,8 @@ use std::{
 };
 
 use crate::{
-    common::GetReadBuf,
-    message::ErrorResponse,
-    message_common::{WireFormatError, WriteWireExt},
+    common::GetReadBuf, errors::WireFormatError, message::ErrorResponse,
+    message_common::WriteWireExt,
 };
 
 /// A response to an SSLRequest message, sent by the server.
