@@ -6,7 +6,7 @@ use std::{
 use crate::{
     common::GetReadBuf,
     errors::{DiagnosticMessage, DiagnosticSeverity, WireFormatError},
-    message_common::{ReadWireExt, WriteWireExt},
+    message_common::{ReadSizedErrors, ReadWireExt, WriteWireExt},
 };
 
 /// Indicates an error that occurred during processing of a client message.
@@ -215,7 +215,16 @@ fn read_diagnostic<R>(reader: &mut R) -> IoResult<DiagnosticMessage>
 where
     R: GetReadBuf + ?Sized,
 {
-    reader.read_sized(usize::MAX, |reader| read_diagnostic_body(reader))
+    reader.read_sized(
+        usize::MAX,
+        ReadSizedErrors {
+            on_incomplete_length: &|| WireFormatError::MessageTooShort,
+            on_negative_length: &|| WireFormatError::MessageTooShort,
+            on_length_limit_exceeded: &|| WireFormatError::MessageTooLong,
+            on_incomplete_body: &|| WireFormatError::IncompleteMessageBody,
+        },
+        |reader| read_diagnostic_body(reader),
+    )
 }
 
 fn read_diagnostic_body<R>(reader: &mut R) -> IoResult<DiagnosticMessage>
@@ -242,17 +251,13 @@ where
     let mut routine: Option<CString> = None;
 
     loop {
-        let field_type = reader
-            .read_u8()
-            .map_err(|_| WireFormatError::ErrorOrNoticeUnterminated)?;
+        let field_type = reader.read_u8(&|| WireFormatError::ErrorOrNoticeUnterminated)?;
 
         if field_type == b'\0' {
             break;
         }
 
-        let value = reader
-            .read_cstring()
-            .map_err(|_| WireFormatError::ErrorOrNoticeUnterminated)?;
+        let value = reader.read_cstring(&|| WireFormatError::ErrorOrNoticeUnterminated)?;
 
         match field_type {
             FIELD_LOCALIZED_SEVERITY => {

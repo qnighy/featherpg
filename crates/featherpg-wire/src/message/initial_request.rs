@@ -7,7 +7,7 @@ use crate::{
     ProtocolVersion,
     common::GetReadBuf,
     errors::WireFormatError,
-    message_common::{ReadWireExt, WriteWireExt},
+    message_common::{ReadSizedErrors, ReadWireExt, WriteWireExt},
 };
 
 /// A message sent by the client as the first message on a new connection.
@@ -105,14 +105,23 @@ impl InitialRequest {
     where
         R: GetReadBuf + ?Sized,
     {
-        reader.read_sized(limits.max_length, |reader| Self::read_body_from(reader))
+        reader.read_sized(
+            limits.max_length,
+            ReadSizedErrors {
+                on_incomplete_length: &|| WireFormatError::StartupIncompleteLength,
+                on_negative_length: &|| WireFormatError::StartupTooShort,
+                on_length_limit_exceeded: &|| WireFormatError::StartupTooLong,
+                on_incomplete_body: &|| WireFormatError::StartupIncompleteBody,
+            },
+            |reader| Self::read_body_from(reader),
+        )
     }
 
     pub fn read_body_from<R>(reader: &mut R) -> IoResult<Self>
     where
         R: GetReadBuf + ?Sized,
     {
-        let version = reader.read_version()?;
+        let version = reader.read_version(&|| WireFormatError::StartupIncompleteVersion)?;
 
         match version {
             SSLRequest::VERSION => Ok(SSLRequest::read_after_version(reader, version)?.into()),
@@ -259,15 +268,12 @@ impl StartupMessage {
         let mut guc_options = Vec::new();
 
         loop {
-            let name = reader
-                .read_cstring()
-                .map_err(|_| WireFormatError::StartupPacketUnterminatedString)?;
+            let name = reader.read_cstring(&|| WireFormatError::StartupPacketUnterminatedString)?;
             if name.is_empty() {
                 break;
             }
-            let value = reader
-                .read_cstring()
-                .map_err(|_| WireFormatError::StartupPacketUnterminatedString)?;
+            let value =
+                reader.read_cstring(&|| WireFormatError::StartupPacketUnterminatedString)?;
 
             match name.as_bytes() {
                 b"database" => database_name = Some(value),
@@ -293,9 +299,7 @@ impl StartupMessage {
             }
         }
 
-        reader
-            .read_eof()
-            .map_err(|_| WireFormatError::StartupPacketExtraBytes)?;
+        reader.read_eof(&|| WireFormatError::StartupPacketExtraBytes)?;
 
         if user_name.as_ref().is_some_and(|s| s.is_empty()) {
             user_name = None;
@@ -351,9 +355,7 @@ impl SSLRequest {
 
         // Subtle difference from PostgreSQL:
         // PostgreSQL does not check EOF here, but we do.
-        reader
-            .read_eof()
-            .map_err(|_| WireFormatError::SSLRequestExtraBytes)?;
+        reader.read_eof(&|| WireFormatError::SSLRequestExtraBytes)?;
 
         Ok(SSLRequest)
     }
@@ -398,9 +400,7 @@ impl GSSENCRequest {
 
         // Subtle difference from PostgreSQL:
         // PostgreSQL does not check EOF here, but we do.
-        reader
-            .read_eof()
-            .map_err(|_| WireFormatError::GSSENCRequestExtraBytes)?;
+        reader.read_eof(&|| WireFormatError::GSSENCRequestExtraBytes)?;
 
         Ok(GSSENCRequest)
     }
@@ -457,10 +457,8 @@ impl CancelRequest {
 
         assert_eq!(version, Self::VERSION);
 
-        let process_id = reader
-            .read_u32()
-            .map_err(|_| WireFormatError::CancelRequestIncompleteProcessId)?
-            as i32;
+        let process_id =
+            reader.read_u32(&|| WireFormatError::CancelRequestIncompleteProcessId)? as i32;
         let secret_key = reader.read_remaining_bytes()?;
         if secret_key.is_empty() {
             return Err(WireFormatError::CancelRequestMissingSecretKey.into());

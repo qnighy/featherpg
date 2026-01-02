@@ -1,11 +1,9 @@
 use std::{
     ffi::{CStr, CString},
-    io::{Error as IoError, ErrorKind as IoErrorKind, Result as IoResult, Write},
+    io::{ErrorKind as IoErrorKind, Result as IoResult, Write},
 };
 
-use thiserror::Error;
-
-use crate::common::GetReadBuf;
+use crate::{common::GetReadBuf, errors::WireFormatError};
 
 /// Represents a protocol version with major and minor numbers.
 ///
@@ -62,27 +60,36 @@ pub(crate) trait WriteWireExt: Write {
 impl<T: Write + ?Sized> WriteWireExt for T {}
 
 pub(crate) trait ReadWireExt: GetReadBuf {
-    fn read_u8(&mut self) -> IoResult<u8> {
+    fn read_bytes(&mut self, buf: &mut [u8], on_eof: &dyn Fn() -> WireFormatError) -> IoResult<()> {
+        self.read_exact(buf).map_err(|e| {
+            if e.kind() == IoErrorKind::UnexpectedEof {
+                on_eof().into()
+            } else {
+                e
+            }
+        })
+    }
+    fn read_u8(&mut self, on_eof: &dyn Fn() -> WireFormatError) -> IoResult<u8> {
         let mut buf = [0u8; 1];
-        self.read_exact(&mut buf)?;
+        self.read_bytes(&mut buf, on_eof)?;
         Ok(buf[0])
     }
-    fn read_u16(&mut self) -> IoResult<u16> {
+    fn read_u16(&mut self, on_eof: &dyn Fn() -> WireFormatError) -> IoResult<u16> {
         let mut buf = [0u8; 2];
-        self.read_exact(&mut buf)?;
+        self.read_bytes(&mut buf, on_eof)?;
         Ok(u16::from_be_bytes(buf))
     }
-    fn read_u32(&mut self) -> IoResult<u32> {
+    fn read_u32(&mut self, on_eof: &dyn Fn() -> WireFormatError) -> IoResult<u32> {
         let mut buf = [0u8; 4];
-        self.read_exact(&mut buf)?;
+        self.read_bytes(&mut buf, on_eof)?;
         Ok(u32::from_be_bytes(buf))
     }
-    fn read_version(&mut self) -> IoResult<ProtocolVersion> {
-        let major = self.read_u16()?;
-        let minor = self.read_u16()?;
+    fn read_version(&mut self, on_eof: &dyn Fn() -> WireFormatError) -> IoResult<ProtocolVersion> {
+        let major = self.read_u16(on_eof)?;
+        let minor = self.read_u16(on_eof)?;
         Ok(ProtocolVersion { major, minor })
     }
-    fn read_cstring(&mut self) -> IoResult<CString> {
+    fn read_cstring(&mut self, on_eof: &dyn Fn() -> WireFormatError) -> IoResult<CString> {
         let mut all_buf: Vec<u8> = Vec::new();
         loop {
             let buf = self.read_buffer();
@@ -97,37 +104,28 @@ pub(crate) trait ReadWireExt: GetReadBuf {
 
                 let new_len = self.fill_buf()?.len();
                 if new_len == 0 {
-                    return Err(IoError::new(
-                        IoErrorKind::UnexpectedEof,
-                        "unterminated C string",
-                    ));
+                    return Err(on_eof().into());
                 }
             }
         }
         Ok(CString::from_vec_with_nul(all_buf).unwrap())
     }
-    fn read_sized<T, F>(&mut self, limit: usize, f: F) -> IoResult<T>
+    fn read_sized<T, F>(&mut self, limit: usize, on_eof: ReadSizedErrors<'_>, f: F) -> IoResult<T>
     where
         F: FnOnce(&mut &[u8]) -> IoResult<T>,
     {
-        let length = self.read_u32()? as usize;
+        let length = self.read_u32(on_eof.on_incomplete_length)? as usize;
         if length < 4 {
-            return Err(IoError::new(
-                IoErrorKind::InvalidData,
-                "message length must be at least 4",
-            ));
+            return Err((on_eof.on_negative_length)().into());
         } else if length - 4 > limit {
             // `limit` above may be usize::MAX
 
-            return Err(IoError::new(
-                IoErrorKind::InvalidData,
-                "message length exceeds limit",
-            ));
+            return Err((on_eof.on_length_limit_exceeded)().into());
         }
         let body_length = length - 4;
 
         let mut buf = vec![0u8; body_length];
-        self.read_exact(&mut buf)?;
+        self.read_bytes(&mut buf, on_eof.on_incomplete_body)?;
 
         let mut slice: &[u8] = &buf;
         let result = f(&mut slice)?;
@@ -141,12 +139,9 @@ pub(crate) trait ReadWireExt: GetReadBuf {
         Ok(buf)
     }
 
-    fn read_eof(&mut self) -> IoResult<()> {
+    fn read_eof(&mut self, on_extra_bytes: &dyn Fn() -> WireFormatError) -> IoResult<()> {
         if !self.read_is_eof()? {
-            return Err(IoError::new(
-                IoErrorKind::InvalidData,
-                "extra bytes found where none were expected",
-            ));
+            return Err(on_extra_bytes().into());
         }
         Ok(())
     }
@@ -165,3 +160,11 @@ pub(crate) trait ReadWireExt: GetReadBuf {
 }
 
 impl<T: GetReadBuf + ?Sized> ReadWireExt for T {}
+
+#[derive(Clone, Copy)]
+pub(crate) struct ReadSizedErrors<'a> {
+    pub(crate) on_incomplete_length: &'a dyn Fn() -> WireFormatError,
+    pub(crate) on_negative_length: &'a dyn Fn() -> WireFormatError,
+    pub(crate) on_length_limit_exceeded: &'a dyn Fn() -> WireFormatError,
+    pub(crate) on_incomplete_body: &'a dyn Fn() -> WireFormatError,
+}
