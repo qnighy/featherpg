@@ -32,8 +32,8 @@ pub(crate) trait WriteWireExt: Write {
         Ok(())
     }
     fn write_version(&mut self, version: ProtocolVersion) -> IoResult<()> {
-        self.write_u16(version.major)?;
-        self.write_u16(version.minor)?;
+        self.write_u16(version.major())?;
+        self.write_u16(version.minor())?;
 
         Ok(())
     }
@@ -72,7 +72,7 @@ pub(crate) trait ReadWireExt: GetReadBuf {
     fn read_version(&mut self, on_eof: &dyn Fn() -> WireFormatError) -> IoResult<ProtocolVersion> {
         let major = self.read_u16(on_eof)?;
         let minor = self.read_u16(on_eof)?;
-        Ok(ProtocolVersion { major, minor })
+        Ok(ProtocolVersion::new(major, minor))
     }
     fn read_cstring(&mut self, on_eof: &dyn Fn() -> WireFormatError) -> IoResult<CString> {
         let mut all_buf: Vec<u8> = Vec::new();

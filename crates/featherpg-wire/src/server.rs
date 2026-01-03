@@ -161,13 +161,15 @@ pub struct NegotiatedProtocol {
     version: NegotiatedVersion,
 }
 
+const V3_0: ProtocolVersion = ProtocolVersion::new(3, 0);
+const V3_1: ProtocolVersion = ProtocolVersion::new(3, 1);
+const V3_2: ProtocolVersion = ProtocolVersion::new(3, 2);
+
 impl NegotiatedProtocol {
     pub fn new(version: ProtocolVersion) -> Self {
         let version = match version {
-            ProtocolVersion { major: 3, minor: 0 } | ProtocolVersion { major: 3, minor: 1 } => {
-                NegotiatedVersion::V3_0
-            }
-            ProtocolVersion { major: 3, minor: 2 } => NegotiatedVersion::V3_2,
+            V3_0 | V3_1 => NegotiatedVersion::V3_0,
+            V3_2 => NegotiatedVersion::V3_2,
             _ => panic!("unsupported protocol version"),
         };
 
@@ -201,10 +203,10 @@ impl From<NegotiatedVersion> for ProtocolVersion {
 fn negotiate_protocol(
     request: &mut StartupMessage,
 ) -> Result<(NegotiatedProtocol, Option<NegotiateProtocolVersion>), ErrorResponse> {
-    if request.version.major != 3 {
+    if request.version.major() != 3 {
         let message = format!(
-            "unsupported frontend protocol {}.{}: server supports 3.0 to 3.2",
-            request.version.major, request.version.minor
+            "unsupported frontend protocol {}: server supports 3.0 to 3.2",
+            request.version
         );
         return Err(ErrorResponse {
             error: DiagnosticMessage {
