@@ -3,7 +3,7 @@ use std::net::{TcpListener, TcpStream};
 use std::thread::{self, JoinHandle};
 
 use featherpg_wire::message::{CancelRequest, StartupMessage};
-use featherpg_wire::server2::{ServerInStartupResponse, ServerStream, TypedInitialRequest};
+use featherpg_wire::server::{ServerInStartupResponse, ServerStream, TypedInitialRequest};
 
 fn main() -> io::Result<()> {
     let port = 15432;
