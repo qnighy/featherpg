@@ -547,15 +547,73 @@ pub enum ReplicationMode {
 mod tests {
     use super::*;
 
+    fn to_bytes(msg: &InitialRequest) -> IoResult<Vec<u8>> {
+        let mut buf = Vec::new();
+        msg.write_to(&mut buf)?;
+        Ok(buf)
+    }
+
     fn to_body_bytes(msg: &InitialRequest) -> IoResult<Vec<u8>> {
         let mut buf = Vec::new();
         msg.write_body_to(&mut buf)?;
         Ok(buf)
     }
 
+    fn from_bytes(
+        data: &[u8],
+        limits: &InitialRequestLimits,
+        state: InitialRequestState,
+    ) -> IoResult<InitialRequest> {
+        let mut reader = data;
+        InitialRequest::read_from(&mut reader, limits, state)
+    }
+
     fn from_body_bytes(data: &[u8]) -> IoResult<InitialRequest> {
         let mut reader = data;
         InitialRequest::read_body_from(&mut reader)
+    }
+
+    #[test]
+    fn test_startup_message_writing_packet() {
+        let msg = StartupMessage {
+            version: ProtocolVersion::new(3, 0),
+            database_name: CString::new("testdb").unwrap(),
+            user_name: CString::new("testuser").unwrap(),
+            cmdline_options: None,
+            replication: ReplicationMode::None,
+            other_protocol_options: vec![],
+            guc_options: vec![],
+        }
+        .into();
+        assert_eq!(
+            to_bytes(&msg).unwrap(),
+            b"\x00\x00\x00\x27\x00\x03\x00\x00user\0testuser\0database\0testdb\0\0"
+        );
+    }
+
+    #[test]
+    fn test_startup_message_parsing_packet() {
+        let data = &b"\x00\x00\x00\x27\x00\x03\x00\x00user\0testuser\0database\0testdb\0\0"[..];
+        let msg = from_bytes(
+            data,
+            &InitialRequestLimits { max_length: 1024 },
+            InitialRequestState::Other,
+        )
+        .unwrap();
+
+        assert_eq!(
+            msg,
+            StartupMessage {
+                version: ProtocolVersion::new(3, 0),
+                database_name: CString::new("testdb").unwrap(),
+                user_name: CString::new("testuser").unwrap(),
+                cmdline_options: None,
+                replication: ReplicationMode::None,
+                other_protocol_options: vec![],
+                guc_options: vec![],
+            }
+            .into()
+        );
     }
 
     #[test]
@@ -981,6 +1039,28 @@ mod tests {
     }
 
     #[test]
+    fn test_ssl_request_writing_packet() {
+        let msg = SSLRequest.into();
+
+        // 0x04D2 = 1234, 0x162F = 5679
+        assert_eq!(to_bytes(&msg).unwrap(), b"\x00\x00\x00\x08\x04\xD2\x16\x2F");
+    }
+
+    #[test]
+    fn test_ssl_request_parsing_packet() {
+        // 0x04D2 = 1234, 0x162F = 5679
+        let data = &b"\x00\x00\x00\x08\x04\xD2\x16\x2F"[..];
+        let msg = from_bytes(
+            data,
+            &InitialRequestLimits { max_length: 1024 },
+            InitialRequestState::Other,
+        )
+        .unwrap();
+
+        assert_eq!(msg, SSLRequest.into());
+    }
+
+    #[test]
     fn test_ssl_request_writing() {
         let msg = SSLRequest.into();
 
@@ -1007,6 +1087,28 @@ mod tests {
     }
 
     #[test]
+    fn test_gssenc_request_writing_packet() {
+        let msg = GSSENCRequest.into();
+
+        // 0x04D2 = 1234, 0x1630 = 5680
+        assert_eq!(to_bytes(&msg).unwrap(), b"\x00\x00\x00\x08\x04\xD2\x16\x30");
+    }
+
+    #[test]
+    fn test_gssenc_request_parsing_packet() {
+        // 0x04D2 = 1234, 0x1630 = 5680
+        let data = &b"\x00\x00\x00\x08\x04\xD2\x16\x30"[..];
+        let msg = from_bytes(
+            data,
+            &InitialRequestLimits { max_length: 1024 },
+            InitialRequestState::Other,
+        )
+        .unwrap();
+
+        assert_eq!(msg, GSSENCRequest.into());
+    }
+
+    #[test]
     fn test_gssenc_request_writing() {
         let msg = GSSENCRequest.into();
 
@@ -1030,6 +1132,41 @@ mod tests {
         let err = from_body_bytes(data).unwrap_err();
 
         assert_eq!(err.to_string(), "extra bytes found in GSSENCRequest");
+    }
+
+    #[test]
+    fn test_cancel_request_writing_packet() {
+        let msg = CancelRequest {
+            process_id: 12345,
+            secret_key: b"secretkeydata".to_vec(),
+        }
+        .into();
+        // 0x04D2 = 1234, 0x162E = 5678
+        assert_eq!(
+            to_bytes(&msg).unwrap(),
+            b"\x00\x00\x00\x19\x04\xD2\x16\x2E\x00\x00\x30\x39secretkeydata"
+        );
+    }
+
+    #[test]
+    fn test_cancel_request_parsing_packet() {
+        // 0x04D2 = 1234, 0x162E = 5678
+        let data = &b"\x00\x00\x00\x19\x04\xD2\x16\x2E\x00\x00\x30\x39secretkeydata"[..];
+        let msg = from_bytes(
+            data,
+            &InitialRequestLimits { max_length: 1024 },
+            InitialRequestState::Other,
+        )
+        .unwrap();
+
+        assert_eq!(
+            msg,
+            CancelRequest {
+                process_id: 12345,
+                secret_key: b"secretkeydata".to_vec(),
+            }
+            .into()
+        );
     }
 
     #[test]
