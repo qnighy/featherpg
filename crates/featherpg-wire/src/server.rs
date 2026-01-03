@@ -1,10 +1,7 @@
-use std::{
-    ffi::{CStr, CString},
-    io::{Error as IoError, ErrorKind as IoErrorKind, Read, Result as IoResult, Write},
-};
+use std::io::{Error as IoError, ErrorKind as IoErrorKind, Read, Result as IoResult, Write};
 
 use crate::{
-    errors::{DiagnosticMessage, DiagnosticSeverity, WireFormatError},
+    errors::{DiagnosticMessage, WireFormatError},
     io_util::BufReaderWriter,
     message::{
         AuthenticationOk, CancelRequest, DirectTLS, ErrorResponse, GSSENCRequest, GSSENCResponse,
@@ -106,16 +103,7 @@ impl ServerInInitialRequest {
 
         let msg = match msg {
             InitialRequest::StartupMessage(mut msg) => {
-                let (protocol, negotiation) = match negotiate_protocol(&mut msg) {
-                    Ok((version, negotiation)) => (version, negotiation),
-                    Err(err) => {
-                        err.write_to(&mut s.stream)?;
-                        return Err(IoError::new(
-                            IoErrorKind::InvalidData,
-                            "protocol version negotiation failed",
-                        ));
-                    }
-                };
+                let (protocol, negotiation) = negotiate_protocol(&mut msg);
                 if let Some(negotiation) = negotiation {
                     let response = StartupResponse::NegotiateProtocolVersion(negotiation);
                     response.write_to(&mut s.stream)?;
@@ -202,35 +190,9 @@ impl From<NegotiatedVersion> for ProtocolVersion {
 
 fn negotiate_protocol(
     request: &mut StartupMessage,
-) -> Result<(NegotiatedProtocol, Option<NegotiateProtocolVersion>), ErrorResponse> {
-    if request.version.major() != 3 {
-        let message = format!(
-            "unsupported frontend protocol {}: server supports 3.0 to 3.2",
-            request.version
-        );
-        return Err(ErrorResponse {
-            error: DiagnosticMessage {
-                severity: DiagnosticSeverity::Fatal,
-                localized_severity: CStr::from_bytes_with_nul(b"FATAL\0").unwrap().to_owned(),
-                code: CStr::from_bytes_with_nul(b"08P01\0").unwrap().to_owned(),
-                message: CString::new(message).unwrap(),
-                detail: None,
-                hint: None,
-                position: None,
-                internal_position: None,
-                internal_query: None,
-                where_: None,
-                schema_name: None,
-                table_name: None,
-                column_name: None,
-                data_type_name: None,
-                constraint_name: None,
-                file: None,
-                line: None,
-                routine: None,
-            },
-        });
-    }
+) -> (NegotiatedProtocol, Option<NegotiateProtocolVersion>) {
+    // Should have been checked when reading
+    assert_eq!(request.version.major(), 3);
 
     let negotiated_version_number = request.version.min(ProtocolVersion::new(3, 2));
     let negotiated_protocol = NegotiatedProtocol::new(negotiated_version_number);
@@ -253,7 +215,7 @@ fn negotiate_protocol(
     request.version = negotiated_version_number;
     request.other_protocol_options.clear();
 
-    Ok((negotiated_protocol, negotiate_protocol_version))
+    (negotiated_protocol, negotiate_protocol_version)
 }
 
 /// A server in the SSLResponse state.

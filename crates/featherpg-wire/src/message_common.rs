@@ -1,6 +1,6 @@
 use std::{
     ffi::{CStr, CString},
-    io::{ErrorKind as IoErrorKind, Result as IoResult, Write},
+    io::{Error as IoError, ErrorKind as IoErrorKind, Result as IoResult, Write},
 };
 
 use crate::{common::GetReadBuf, errors::WireFormatError, message::ProtocolVersion};
@@ -154,4 +154,17 @@ pub(crate) struct ReadSizedErrors<'a> {
     pub(crate) on_length_limit_exceeded:
         &'a dyn Fn(/* length_found */ usize, /* max_length */ usize) -> WireFormatError,
     pub(crate) on_incomplete_body: &'a dyn Fn() -> WireFormatError,
+}
+
+/// Validates a parameter passed from caller code.
+///
+/// Do not use this for validating data received from the network.
+pub(crate) fn assert_param<F>(condition: bool, on_error: F) -> IoResult<()>
+where
+    F: FnOnce() -> String,
+{
+    if !condition {
+        return Err(IoError::new(IoErrorKind::InvalidInput, on_error()));
+    }
+    Ok(())
 }

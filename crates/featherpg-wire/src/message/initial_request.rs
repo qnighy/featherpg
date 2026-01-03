@@ -7,7 +7,7 @@ use crate::{
     common::GetReadBuf,
     errors::WireFormatError,
     message::{ImplicitTerminate, ProtocolVersion},
-    message_common::{ReadSizedErrors, ReadWireExt, WriteWireExt},
+    message_common::{ReadSizedErrors, ReadWireExt, WriteWireExt, assert_param},
 };
 
 /// A message sent by the client as the first message on a new connection.
@@ -187,6 +187,12 @@ impl StartupMessage {
     {
         // fe-protocol3.c, build_startup_packet
 
+        assert_param(self.version.major() == 3, || {
+            format!(
+                "StartupMessage version major must be 3, found {}",
+                self.version.major()
+            )
+        })?;
         writer.write_version(self.version)?;
         writer.write_bytes(b"user\0")?;
         writer.write_cstring(self.user_name.as_c_str())?;
@@ -278,6 +284,10 @@ impl StartupMessage {
         R: GetReadBuf + ?Sized,
     {
         // See: backend_startup.c, ProcessStartupPacket
+
+        if version.major() != 3 {
+            return Err(WireFormatError::StartupMessageUnsupportedMajorVersion { version }.into());
+        }
 
         let mut database_name = None;
         let mut user_name = None;

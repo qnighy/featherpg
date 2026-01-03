@@ -6,6 +6,8 @@ use std::{
 
 use thiserror::Error;
 
+use crate::message::ProtocolVersion;
+
 #[derive(Debug, Error)]
 pub enum ServerError {
     #[error("PostgreSQL error: {0}")]
@@ -67,6 +69,10 @@ pub(crate) enum WireFormatError {
     #[error("packet too short for InitialRequest version")]
     InitialRequestIncompleteVersion,
 
+    #[error(
+        "unsupported version {version} in StartupMessage (expected 3.x, 1234.5678, 1234.5679, or 1234.5680)"
+    )]
+    StartupMessageUnsupportedMajorVersion { version: ProtocolVersion },
     #[error("unterminated option name in StartupMessage")]
     StartupMessageUnterminatedOptionName,
     #[error("unterminated option value in StartupMessage")]
