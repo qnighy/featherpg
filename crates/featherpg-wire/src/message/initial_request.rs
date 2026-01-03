@@ -74,7 +74,7 @@ impl InitialRequest {
         writer.write_sized(|writer| self.write_body_to(writer))
     }
 
-    pub fn write_body_to<W>(&self, writer: &mut W) -> IoResult<()>
+    fn write_body_to<W>(&self, writer: &mut W) -> IoResult<()>
     where
         W: Write + ?Sized,
     {
@@ -129,7 +129,7 @@ impl InitialRequest {
         )
     }
 
-    pub fn read_body_from<R>(reader: &mut R) -> IoResult<Self>
+    fn read_body_from<R>(reader: &mut R) -> IoResult<Self>
     where
         R: GetReadBuf + ?Sized,
     {
@@ -547,13 +547,13 @@ pub enum ReplicationMode {
 mod tests {
     use super::*;
 
-    fn to_bytes(msg: &InitialRequest) -> IoResult<Vec<u8>> {
+    fn to_body_bytes(msg: &InitialRequest) -> IoResult<Vec<u8>> {
         let mut buf = Vec::new();
         msg.write_body_to(&mut buf)?;
         Ok(buf)
     }
 
-    fn from_bytes(data: &[u8]) -> IoResult<InitialRequest> {
+    fn from_body_bytes(data: &[u8]) -> IoResult<InitialRequest> {
         let mut reader = data;
         InitialRequest::read_body_from(&mut reader)
     }
@@ -571,7 +571,7 @@ mod tests {
         }
         .into();
         assert_eq!(
-            to_bytes(&msg).unwrap(),
+            to_body_bytes(&msg).unwrap(),
             b"\x00\x03\x00\x00user\0testuser\0database\0testdb\0\0"
         );
     }
@@ -589,7 +589,7 @@ mod tests {
         }
         .into();
         assert_eq!(
-            to_bytes(&msg).unwrap(),
+            to_body_bytes(&msg).unwrap(),
             b"\x00\x03\x00\x00user\0testuser\0database\0testdb\0options\0-S 8192\0\0"
         );
     }
@@ -607,7 +607,7 @@ mod tests {
         }
         .into();
         assert_eq!(
-            to_bytes(&msg).unwrap(),
+            to_body_bytes(&msg).unwrap(),
             b"\x00\x03\x00\x00user\0testuser\0database\0testdb\0replication\0database\0\0"
         );
     }
@@ -625,7 +625,7 @@ mod tests {
         }
         .into();
         assert_eq!(
-            to_bytes(&msg).unwrap(),
+            to_body_bytes(&msg).unwrap(),
             b"\x00\x03\x00\x00user\0testuser\0database\0testdb\0replication\0true\0\0"
         );
     }
@@ -652,7 +652,7 @@ mod tests {
         }
         .into();
         assert_eq!(
-            to_bytes(&msg).unwrap(),
+            to_body_bytes(&msg).unwrap(),
             b"\x00\x03\x00\x00user\0testuser\0database\0testdb\0_pq_.foo\0bar\0_pq_.baz\0qux\0\0"
         );
     }
@@ -679,7 +679,7 @@ mod tests {
         }
         .into();
         assert_eq!(
-            to_bytes(&msg).unwrap(),
+            to_body_bytes(&msg).unwrap(),
             b"\x00\x03\x00\x00user\0testuser\0database\0testdb\0search_path\0public,custom\0application_name\0myapp\0\0"
         );
     }
@@ -687,7 +687,7 @@ mod tests {
     #[test]
     fn test_startup_message_parsing_simple() {
         let data = &b"\x00\x03\x00\x00user\0testuser\0database\0testdb\0\0"[..];
-        let msg = from_bytes(data).unwrap();
+        let msg = from_body_bytes(data).unwrap();
 
         assert_eq!(
             msg,
@@ -705,9 +705,29 @@ mod tests {
     }
 
     #[test]
+    fn test_startup_message_large_minor_version() {
+        let data = &b"\x00\x03\x01\x2Cuser\0testuser\0database\0testdb\0\0"[..];
+        let msg = from_body_bytes(data).unwrap();
+
+        assert_eq!(
+            msg,
+            StartupMessage {
+                version: ProtocolVersion::new(3, 300),
+                database_name: CString::new("testdb").unwrap(),
+                user_name: CString::new("testuser").unwrap(),
+                cmdline_options: None,
+                replication: ReplicationMode::None,
+                other_protocol_options: vec![],
+                guc_options: vec![],
+            }
+            .into()
+        );
+    }
+
+    #[test]
     fn test_startup_message_parsing_missing_database_fallback() {
         let data = &b"\x00\x03\x00\x00user\0testuser\0\0"[..];
-        let msg = from_bytes(data).unwrap();
+        let msg = from_body_bytes(data).unwrap();
 
         assert_eq!(
             msg,
@@ -727,7 +747,7 @@ mod tests {
     #[test]
     fn test_startup_message_parsing_empty_database_fallback() {
         let data = &b"\x00\x03\x00\x00user\0testuser\0database\0\0\0"[..];
-        let msg = from_bytes(data).unwrap();
+        let msg = from_body_bytes(data).unwrap();
 
         assert_eq!(
             msg,
@@ -747,7 +767,7 @@ mod tests {
     #[test]
     fn test_startup_message_parsing_cmdline_options() {
         let data = &b"\x00\x03\x00\x00user\0testuser\0database\0testdb\0options\0-S 8192\0\0"[..];
-        let msg = from_bytes(data).unwrap();
+        let msg = from_body_bytes(data).unwrap();
 
         assert_eq!(
             msg,
@@ -768,7 +788,7 @@ mod tests {
     fn test_startup_message_parsing_replication_database() {
         let data =
             &b"\x00\x03\x00\x00user\0testuser\0database\0testdb\0replication\0database\0\0"[..];
-        let msg = from_bytes(data).unwrap();
+        let msg = from_body_bytes(data).unwrap();
 
         assert_eq!(
             msg,
@@ -788,7 +808,7 @@ mod tests {
     #[test]
     fn test_startup_message_parsing_replication_true() {
         let data = &b"\x00\x03\x00\x00user\0testuser\0database\0testdb\0replication\0true\0\0"[..];
-        let msg = from_bytes(data).unwrap();
+        let msg = from_body_bytes(data).unwrap();
 
         assert_eq!(
             msg,
@@ -808,7 +828,7 @@ mod tests {
     #[test]
     fn test_startup_message_parsing_replication_false() {
         let data = &b"\x00\x03\x00\x00user\0testuser\0database\0testdb\0replication\0false\0\0"[..];
-        let msg = from_bytes(data).unwrap();
+        let msg = from_body_bytes(data).unwrap();
 
         assert_eq!(
             msg,
@@ -830,7 +850,7 @@ mod tests {
         let data =
             &b"\x00\x03\x00\x00user\0testuser\0database\0testdb\0_pq_.foo\0bar\0_pq_.baz\0qux\0\0"
                 [..];
-        let msg = from_bytes(data).unwrap();
+        let msg = from_body_bytes(data).unwrap();
 
         assert_eq!(
             msg,
@@ -860,7 +880,7 @@ mod tests {
     fn test_startup_message_parsing_guc_options() {
         let data = &b"\x00\x03\x00\x00user\0testuser\0database\0testdb\0work_mem\04096\0search_path\0public\0\0"
             [..];
-        let msg = from_bytes(data).unwrap();
+        let msg = from_body_bytes(data).unwrap();
 
         assert_eq!(
             msg,
@@ -887,9 +907,31 @@ mod tests {
     }
 
     #[test]
+    fn test_startup_message_parse_error_small_major_version() {
+        let data = &b"\x00\x02\x00\x00user\0testuser\0database\0testdb\0\0"[..];
+        let err = from_body_bytes(data).unwrap_err();
+
+        assert_eq!(
+            err.to_string(),
+            "unsupported version 2.0 in StartupMessage (expected 3.x, 1234.5678, 1234.5679, or 1234.5680)"
+        );
+    }
+
+    #[test]
+    fn test_startup_message_parse_error_large_major_version() {
+        let data = &b"\x00\x04\x00\x00user\0testuser\0database\0testdb\0\0"[..];
+        let err = from_body_bytes(data).unwrap_err();
+
+        assert_eq!(
+            err.to_string(),
+            "unsupported version 4.0 in StartupMessage (expected 3.x, 1234.5678, 1234.5679, or 1234.5680)"
+        );
+    }
+
+    #[test]
     fn test_startup_message_parse_error_unterminated_name() {
         let data = &b"\x00\x03\x00\x00user"[..];
-        let err = from_bytes(data).unwrap_err();
+        let err = from_body_bytes(data).unwrap_err();
 
         assert_eq!(
             err.to_string(),
@@ -900,7 +942,7 @@ mod tests {
     #[test]
     fn test_startup_message_parse_error_unterminated_value() {
         let data = &b"\x00\x03\x00\x00user\0testuser"[..];
-        let err = from_bytes(data).unwrap_err();
+        let err = from_body_bytes(data).unwrap_err();
 
         assert_eq!(
             err.to_string(),
@@ -911,7 +953,7 @@ mod tests {
     #[test]
     fn test_startup_message_parse_error_extra_bytes() {
         let data = &b"\x00\x03\x00\x00user\0testuser\0database\0testdb\0\0extra"[..];
-        let err = from_bytes(data).unwrap_err();
+        let err = from_body_bytes(data).unwrap_err();
 
         assert_eq!(err.to_string(), "extra bytes found in StartupMessage");
     }
@@ -919,7 +961,7 @@ mod tests {
     #[test]
     fn test_startup_message_parse_error_missing_username() {
         let data = &b"\x00\x03\x00\x00database\0testdb\0\0"[..];
-        let err = from_bytes(data).unwrap_err();
+        let err = from_body_bytes(data).unwrap_err();
 
         assert_eq!(
             err.to_string(),
@@ -930,7 +972,7 @@ mod tests {
     #[test]
     fn test_startup_message_parse_error_empty_username() {
         let data = &b"\x00\x03\x00\x00user\0\0database\0testdb\0\0"[..];
-        let err = from_bytes(data).unwrap_err();
+        let err = from_body_bytes(data).unwrap_err();
 
         assert_eq!(
             err.to_string(),
@@ -943,14 +985,14 @@ mod tests {
         let msg = SSLRequest.into();
 
         // 0x04D2 = 1234, 0x162F = 5679
-        assert_eq!(to_bytes(&msg).unwrap(), b"\x04\xD2\x16\x2F");
+        assert_eq!(to_body_bytes(&msg).unwrap(), b"\x04\xD2\x16\x2F");
     }
 
     #[test]
     fn test_ssl_request_parsing() {
         // 0x04D2 = 1234, 0x162F = 5679
         let data = &b"\x04\xD2\x16\x2F"[..];
-        let msg = from_bytes(data).unwrap();
+        let msg = from_body_bytes(data).unwrap();
 
         assert_eq!(msg, SSLRequest.into());
     }
@@ -959,7 +1001,7 @@ mod tests {
     fn test_ssl_request_parse_error_extra_bytes() {
         // 0x04D2 = 1234, 0x162F = 5679
         let data = &b"\x04\xD2\x16\x2Ffoo"[..];
-        let err = from_bytes(data).unwrap_err();
+        let err = from_body_bytes(data).unwrap_err();
 
         assert_eq!(err.to_string(), "extra bytes found in SSLRequest");
     }
@@ -969,14 +1011,14 @@ mod tests {
         let msg = GSSENCRequest.into();
 
         // 0x04D2 = 1234, 0x1630 = 5680
-        assert_eq!(to_bytes(&msg).unwrap(), b"\x04\xD2\x16\x30");
+        assert_eq!(to_body_bytes(&msg).unwrap(), b"\x04\xD2\x16\x30");
     }
 
     #[test]
     fn test_gssenc_request_parsing() {
         // 0x04D2 = 1234, 0x1630 = 5680
         let data = &b"\x04\xD2\x16\x30"[..];
-        let msg = from_bytes(data).unwrap();
+        let msg = from_body_bytes(data).unwrap();
 
         assert_eq!(msg, GSSENCRequest.into());
     }
@@ -985,7 +1027,7 @@ mod tests {
     fn test_gssenc_request_parse_error_extra_bytes() {
         // 0x04D2 = 1234, 0x1630 = 5680
         let data = &b"\x04\xD2\x16\x30foo"[..];
-        let err = from_bytes(data).unwrap_err();
+        let err = from_body_bytes(data).unwrap_err();
 
         assert_eq!(err.to_string(), "extra bytes found in GSSENCRequest");
     }
@@ -999,7 +1041,7 @@ mod tests {
         .into();
         // 0x04D2 = 1234, 0x162E = 5678
         assert_eq!(
-            to_bytes(&msg).unwrap(),
+            to_body_bytes(&msg).unwrap(),
             b"\x04\xD2\x16\x2E\x00\x00\x30\x39secretkeydata"
         );
     }
@@ -1013,7 +1055,7 @@ mod tests {
         .into();
         // 0x04D2 = 1234, 0x162E = 5678
         assert_eq!(
-            to_bytes(&msg).unwrap(),
+            to_body_bytes(&msg).unwrap(),
             b"\x04\xD2\x16\x2E\x00\x00\x30\x39x"
         );
     }
@@ -1026,7 +1068,7 @@ mod tests {
         }
         .into();
         // 0x04D2 = 1234, 0x162E = 5678
-        assert_eq!(to_bytes(&msg).unwrap(), {
+        assert_eq!(to_body_bytes(&msg).unwrap(), {
             let mut v = b"\x04\xD2\x16\x2E\x00\x00\x30\x39".to_vec();
             v.extend(b"a".repeat(256));
             v
@@ -1037,7 +1079,7 @@ mod tests {
     fn test_cancel_request_parsing_simple() {
         // 0x04D2 = 1234, 0x162E = 5678
         let data = &b"\x04\xD2\x16\x2E\x00\x00\x30\x39secretkeydata"[..];
-        let msg = from_bytes(data).unwrap();
+        let msg = from_body_bytes(data).unwrap();
 
         assert_eq!(
             msg,
@@ -1053,7 +1095,7 @@ mod tests {
     fn test_cancel_request_parsing_min_length() {
         // 0x04D2 = 1234, 0x162E = 5678
         let data = &b"\x04\xD2\x16\x2E\x00\x00\x30\x39x"[..];
-        let msg = from_bytes(data).unwrap();
+        let msg = from_body_bytes(data).unwrap();
 
         assert_eq!(
             msg,
@@ -1070,7 +1112,7 @@ mod tests {
         // 0x04D2 = 1234, 0x162E = 5678
         let mut data = b"\x04\xD2\x16\x2E\x00\x00\x30\x39".to_vec();
         data.extend(b"a".repeat(256));
-        let msg = from_bytes(&data).unwrap();
+        let msg = from_body_bytes(&data).unwrap();
 
         assert_eq!(
             msg,
@@ -1086,7 +1128,7 @@ mod tests {
     fn test_cancel_request_parse_error_incomplete_process_id() {
         // 0x04D2 = 1234, 0x162E = 5678
         let data = &b"\x04\xD2\x16\x2E\x00\x00\x30"[..];
-        let err = from_bytes(data).unwrap_err();
+        let err = from_body_bytes(data).unwrap_err();
 
         assert_eq!(
             err.to_string(),
@@ -1098,7 +1140,7 @@ mod tests {
     fn test_cancel_request_parse_error_missing_secret_key() {
         // 0x04D2 = 1234, 0x162E = 5678
         let data = &b"\x04\xD2\x16\x2E\x00\x00\x30\x39"[..];
-        let err = from_bytes(data).unwrap_err();
+        let err = from_body_bytes(data).unwrap_err();
 
         assert_eq!(
             err.to_string(),
@@ -1111,7 +1153,7 @@ mod tests {
         // 0x04D2 = 1234, 0x162E = 5678
         let mut data = b"\x04\xD2\x16\x2E\x00\x00\x30\x39".to_vec();
         data.extend(b"a".repeat(257));
-        let err = from_bytes(&data).unwrap_err();
+        let err = from_body_bytes(&data).unwrap_err();
 
         assert_eq!(
             err.to_string(),
