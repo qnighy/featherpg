@@ -151,6 +151,22 @@ pub(crate) enum WireFormatError {
     #[error("extra bytes found in AuthenticationSASL")]
     AuthenticationSASLExtraBytes,
 
+    #[error("unknown type byte for CleartextPasswordClientResponse: {} (expected R or v)", describe_byte(*type_byte))]
+    CleartextPasswordClientResponseUnknownTypeByte { type_byte: u8 },
+
+    #[error("unexpected EOF while reading CleartextPasswordMessage length")]
+    CleartextPasswordMessageIncompleteLength,
+    #[error("found negative length {length} in CleartextPasswordMessage")]
+    CleartextPasswordMessageNegativeLength { length: isize },
+    #[error("CleartextPasswordMessage too large (found {length}, limit {max_length})")]
+    CleartextPasswordMessageTooLarge { length: usize, max_length: usize },
+    #[error("unexpected EOF while reading CleartextPasswordMessage body")]
+    CleartextPasswordMessageIncompleteBody,
+    #[error("unterminated password in CleartextPasswordMessage")]
+    CleartextPasswordMessageUnterminatedCString,
+    #[error("extra bytes found in CleartextPasswordMessage")]
+    CleartextPasswordMessageExtraBytes,
+
     #[error("unexpected EOF while reading ErrorResponse/NoticeResponse length")]
     ErrorOrNoticeResponseIncompleteLength,
     #[error("found negative length {length} in ErrorResponse/NoticeResponse")]

@@ -1,3 +1,5 @@
+use std::io::{Result as IoResult, Write};
+
 /// Indicates that the client has implicitly terminated the connection,
 /// without sending a Terminate message, where a message is expected.
 ///
@@ -18,3 +20,13 @@
 /// kinds of protocol violations.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ImplicitTerminate;
+
+impl ImplicitTerminate {
+    pub(in crate::message) fn write_to<W>(&self, _writer: &mut W) -> IoResult<()>
+    where
+        W: Write + ?Sized,
+    {
+        // ImplicitTerminate has no body to write.
+        Ok(())
+    }
+}
