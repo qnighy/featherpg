@@ -547,18 +547,34 @@ pub enum ReplicationMode {
 mod tests {
     use super::*;
 
+    #[track_caller]
     fn to_bytes(msg: &InitialRequest) -> IoResult<Vec<u8>> {
         let mut buf = Vec::new();
         msg.write_to(&mut buf)?;
         Ok(buf)
     }
 
-    fn to_body_bytes(msg: &InitialRequest) -> IoResult<Vec<u8>> {
-        let mut buf = Vec::new();
-        msg.write_body_to(&mut buf)?;
-        Ok(buf)
+    /// Helper function to focus on the packet body only.
+    ///
+    /// Use this in most tests, but include one test
+    /// per type_byte (not applicable for InitialRequest)
+    /// to test the full packet writing.
+    #[track_caller]
+    fn decompose_packet(bytes: Vec<u8>) -> Vec<u8> {
+        assert!(bytes.len() >= 4, "packet too short to contain length");
+        let len = <[u8; 4]>::try_from(&bytes[0..4]).unwrap();
+        let len = u32::from_be_bytes(len) as usize;
+        assert_eq!(len, bytes.len());
+
+        bytes[4..].to_vec()
     }
 
+    #[track_caller]
+    fn to_body_bytes(msg: &InitialRequest) -> IoResult<Vec<u8>> {
+        Ok(decompose_packet(to_bytes(msg)?))
+    }
+
+    #[track_caller]
     fn from_bytes(
         data: &[u8],
         limits: &InitialRequestLimits,
@@ -568,9 +584,25 @@ mod tests {
         InitialRequest::read_from(&mut reader, limits, state)
     }
 
+    /// Helper function to focus on the packet body only.
+    ///
+    /// Use this in most tests, but include one test
+    /// per type_byte (not applicable for InitialRequest)
+    /// to test the full packet writing.
+    fn compose_packet(data: &[u8]) -> Vec<u8> {
+        let len = (data.len() + 4) as u32;
+        let mut packet = len.to_be_bytes().to_vec();
+        packet.extend_from_slice(data);
+        packet
+    }
+
+    #[track_caller]
     fn from_body_bytes(data: &[u8]) -> IoResult<InitialRequest> {
-        let mut reader = data;
-        InitialRequest::read_body_from(&mut reader)
+        from_bytes(
+            &compose_packet(data),
+            &InitialRequestLimits { max_length: 10000 },
+            InitialRequestState::Other,
+        )
     }
 
     #[test]
