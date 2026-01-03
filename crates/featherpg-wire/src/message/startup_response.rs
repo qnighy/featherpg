@@ -668,3 +668,530 @@ impl AuthenticationSASLFinal {
         Ok(AuthenticationSASLFinal { data })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn to_bytes(msg: &StartupResponse) -> IoResult<Vec<u8>> {
+        let mut buf = Vec::new();
+        msg.write_to(&mut buf)?;
+        Ok(buf)
+    }
+
+    fn to_body_bytes(msg: &NegotiateProtocolVersion) -> IoResult<Vec<u8>> {
+        let mut buf = Vec::new();
+        msg.write_body_to(&mut buf)?;
+        Ok(buf)
+    }
+
+    fn to_auth_body_bytes<T>(msg: &T) -> IoResult<Vec<u8>>
+    where
+        T: AuthBodyWriter,
+    {
+        let mut buf = Vec::new();
+        msg.write_body_to(&mut buf)?;
+        Ok(buf)
+    }
+
+    fn from_bytes(data: &[u8]) -> IoResult<StartupResponse> {
+        let mut reader = data;
+        StartupResponse::read_from(&mut reader)
+    }
+
+    fn from_negotiate_body_bytes(data: &[u8]) -> IoResult<NegotiateProtocolVersion> {
+        let mut reader = data;
+        NegotiateProtocolVersion::read_body(&mut reader)
+    }
+
+    fn from_auth_body_bytes(data: &[u8]) -> IoResult<StartupResponse> {
+        let mut reader = data;
+        read_authentication_body(&mut reader, AUTH_TYPE_BYTE)
+    }
+
+    trait AuthBodyWriter {
+        fn write_body_to<W>(&self, writer: &mut W) -> IoResult<()>
+        where
+            W: Write;
+    }
+
+    impl AuthBodyWriter for AuthenticationOk {
+        fn write_body_to<W>(&self, writer: &mut W) -> IoResult<()>
+        where
+            W: Write,
+        {
+            AuthenticationOk::write_body_to(self, writer)
+        }
+    }
+
+    impl AuthBodyWriter for AuthenticationCleartextPassword {
+        fn write_body_to<W>(&self, writer: &mut W) -> IoResult<()>
+        where
+            W: Write,
+        {
+            AuthenticationCleartextPassword::write_body_to(self, writer)
+        }
+    }
+
+    impl AuthBodyWriter for AuthenticationMD5Password {
+        fn write_body_to<W>(&self, writer: &mut W) -> IoResult<()>
+        where
+            W: Write,
+        {
+            AuthenticationMD5Password::write_body_to(self, writer)
+        }
+    }
+
+    impl AuthBodyWriter for AuthenticationGSS {
+        fn write_body_to<W>(&self, writer: &mut W) -> IoResult<()>
+        where
+            W: Write,
+        {
+            AuthenticationGSS::write_body_to(self, writer)
+        }
+    }
+
+    impl AuthBodyWriter for AuthenticationGSSContinue {
+        fn write_body_to<W>(&self, writer: &mut W) -> IoResult<()>
+        where
+            W: Write,
+        {
+            AuthenticationGSSContinue::write_body_to(self, writer)
+        }
+    }
+
+    impl AuthBodyWriter for AuthenticationSSPI {
+        fn write_body_to<W>(&self, writer: &mut W) -> IoResult<()>
+        where
+            W: Write,
+        {
+            AuthenticationSSPI::write_body_to(self, writer)
+        }
+    }
+
+    impl AuthBodyWriter for AuthenticationSASL {
+        fn write_body_to<W>(&self, writer: &mut W) -> IoResult<()>
+        where
+            W: Write,
+        {
+            AuthenticationSASL::write_body_to(self, writer)
+        }
+    }
+
+    impl AuthBodyWriter for AuthenticationSASLContinue {
+        fn write_body_to<W>(&self, writer: &mut W) -> IoResult<()>
+        where
+            W: Write,
+        {
+            AuthenticationSASLContinue::write_body_to(self, writer)
+        }
+    }
+
+    impl AuthBodyWriter for AuthenticationSASLFinal {
+        fn write_body_to<W>(&self, writer: &mut W) -> IoResult<()>
+        where
+            W: Write,
+        {
+            AuthenticationSASLFinal::write_body_to(self, writer)
+        }
+    }
+
+    // Packet tests for NegotiateProtocolVersion (type byte 'v')
+    #[test]
+    fn test_negotiate_protocol_version_writing_packet() {
+        let msg = StartupResponse::NegotiateProtocolVersion(NegotiateProtocolVersion {
+            version: ProtocolVersion::new(3, 0),
+            unrecognized_options: vec![
+                CString::new("_pq_.option1").unwrap(),
+                CString::new("_pq_.option2").unwrap(),
+            ],
+        });
+        assert_eq!(
+            to_bytes(&msg).unwrap(),
+            b"v\x00\x00\x00\x23\x00\x03\x00\x00_pq_.option1\0_pq_.option2\0\0"
+        );
+    }
+
+    #[test]
+    fn test_negotiate_protocol_version_parsing_packet() {
+        let data = b"v\x00\x00\x00\x23\x00\x03\x00\x00_pq_.option1\0_pq_.option2\0\0";
+        let msg = from_bytes(data).unwrap();
+
+        assert_eq!(
+            msg,
+            StartupResponse::NegotiateProtocolVersion(NegotiateProtocolVersion {
+                version: ProtocolVersion::new(3, 0),
+                unrecognized_options: vec![
+                    CString::new("_pq_.option1").unwrap(),
+                    CString::new("_pq_.option2").unwrap(),
+                ],
+            })
+        );
+    }
+
+    // Packet tests for Authentication* (type byte 'R')
+    #[test]
+    fn test_authentication_ok_writing_packet() {
+        let msg = StartupResponse::AuthenticationOk(AuthenticationOk);
+        assert_eq!(
+            to_bytes(&msg).unwrap(),
+            b"R\x00\x00\x00\x08\x00\x00\x00\x00"
+        );
+    }
+
+    #[test]
+    fn test_authentication_ok_parsing_packet() {
+        let data = b"R\x00\x00\x00\x08\x00\x00\x00\x00";
+        let msg = from_bytes(data).unwrap();
+
+        assert_eq!(msg, StartupResponse::AuthenticationOk(AuthenticationOk));
+    }
+
+    // Body tests for NegotiateProtocolVersion
+    #[test]
+    fn test_negotiate_protocol_version_writing() {
+        let msg = NegotiateProtocolVersion {
+            version: ProtocolVersion::new(3, 0),
+            unrecognized_options: vec![
+                CString::new("_pq_.option1").unwrap(),
+                CString::new("_pq_.option2").unwrap(),
+            ],
+        };
+        assert_eq!(
+            to_body_bytes(&msg).unwrap(),
+            b"\x00\x03\x00\x00_pq_.option1\0_pq_.option2\0\0"
+        );
+    }
+
+    #[test]
+    fn test_negotiate_protocol_version_parsing() {
+        let data = b"\x00\x03\x00\x00_pq_.option1\0_pq_.option2\0\0";
+        let msg = from_negotiate_body_bytes(data).unwrap();
+
+        assert_eq!(
+            msg,
+            NegotiateProtocolVersion {
+                version: ProtocolVersion::new(3, 0),
+                unrecognized_options: vec![
+                    CString::new("_pq_.option1").unwrap(),
+                    CString::new("_pq_.option2").unwrap(),
+                ],
+            }
+        );
+    }
+
+    #[test]
+    fn test_negotiate_protocol_version_empty_options() {
+        let msg = NegotiateProtocolVersion {
+            version: ProtocolVersion::new(3, 0),
+            unrecognized_options: vec![],
+        };
+        assert_eq!(to_body_bytes(&msg).unwrap(), b"\x00\x03\x00\x00\0");
+    }
+
+    // Body tests for Authentication messages
+    #[test]
+    fn test_authentication_ok_writing() {
+        let msg = AuthenticationOk;
+        assert_eq!(to_auth_body_bytes(&msg).unwrap(), b"\x00\x00\x00\x00");
+    }
+
+    #[test]
+    fn test_authentication_ok_parsing() {
+        let data = b"\x00\x00\x00\x00";
+        let msg = from_auth_body_bytes(data).unwrap();
+
+        assert_eq!(msg, StartupResponse::AuthenticationOk(AuthenticationOk));
+    }
+
+    #[test]
+    fn test_authentication_cleartext_password_writing() {
+        let msg = AuthenticationCleartextPassword;
+        assert_eq!(to_auth_body_bytes(&msg).unwrap(), b"\x00\x00\x00\x03");
+    }
+
+    #[test]
+    fn test_authentication_cleartext_password_parsing() {
+        let data = b"\x00\x00\x00\x03";
+        let msg = from_auth_body_bytes(data).unwrap();
+
+        assert_eq!(
+            msg,
+            StartupResponse::AuthenticationCleartextPassword(AuthenticationCleartextPassword)
+        );
+    }
+
+    #[test]
+    fn test_authentication_md5_password_writing() {
+        let msg = AuthenticationMD5Password {
+            salt: [0x12, 0x34, 0x56, 0x78],
+        };
+        assert_eq!(
+            to_auth_body_bytes(&msg).unwrap(),
+            b"\x00\x00\x00\x05\x12\x34\x56\x78"
+        );
+    }
+
+    #[test]
+    fn test_authentication_md5_password_parsing() {
+        let data = b"\x00\x00\x00\x05\x12\x34\x56\x78";
+        let msg = from_auth_body_bytes(data).unwrap();
+
+        assert_eq!(
+            msg,
+            StartupResponse::AuthenticationMD5Password(AuthenticationMD5Password {
+                salt: [0x12, 0x34, 0x56, 0x78],
+            })
+        );
+    }
+
+    #[test]
+    fn test_authentication_gss_writing() {
+        let msg = AuthenticationGSS;
+        assert_eq!(to_auth_body_bytes(&msg).unwrap(), b"\x00\x00\x00\x07");
+    }
+
+    #[test]
+    fn test_authentication_gss_parsing() {
+        let data = b"\x00\x00\x00\x07";
+        let msg = from_auth_body_bytes(data).unwrap();
+
+        assert_eq!(msg, StartupResponse::AuthenticationGSS(AuthenticationGSS));
+    }
+
+    #[test]
+    fn test_authentication_gss_continue_writing() {
+        let msg = AuthenticationGSSContinue {
+            data: vec![0xAA, 0xBB, 0xCC],
+        };
+        assert_eq!(
+            to_auth_body_bytes(&msg).unwrap(),
+            b"\x00\x00\x00\x08\xAA\xBB\xCC"
+        );
+    }
+
+    #[test]
+    fn test_authentication_gss_continue_parsing() {
+        let data = b"\x00\x00\x00\x08\xAA\xBB\xCC";
+        let msg = from_auth_body_bytes(data).unwrap();
+
+        assert_eq!(
+            msg,
+            StartupResponse::AuthenticationGSSContinue(AuthenticationGSSContinue {
+                data: vec![0xAA, 0xBB, 0xCC],
+            })
+        );
+    }
+
+    #[test]
+    fn test_authentication_gss_continue_empty_data() {
+        let msg = AuthenticationGSSContinue { data: vec![] };
+        assert_eq!(to_auth_body_bytes(&msg).unwrap(), b"\x00\x00\x00\x08");
+    }
+
+    #[test]
+    fn test_authentication_sspi_writing() {
+        let msg = AuthenticationSSPI;
+        assert_eq!(to_auth_body_bytes(&msg).unwrap(), b"\x00\x00\x00\x09");
+    }
+
+    #[test]
+    fn test_authentication_sspi_parsing() {
+        let data = b"\x00\x00\x00\x09";
+        let msg = from_auth_body_bytes(data).unwrap();
+
+        assert_eq!(msg, StartupResponse::AuthenticationSSPI(AuthenticationSSPI));
+    }
+
+    #[test]
+    fn test_authentication_sasl_writing() {
+        let msg = AuthenticationSASL {
+            mechanisms: vec![
+                CString::new("SCRAM-SHA-256").unwrap(),
+                CString::new("SCRAM-SHA-256-PLUS").unwrap(),
+            ],
+        };
+        assert_eq!(
+            to_auth_body_bytes(&msg).unwrap(),
+            b"\x00\x00\x00\x0ASCRAM-SHA-256\0SCRAM-SHA-256-PLUS\0\0"
+        );
+    }
+
+    #[test]
+    fn test_authentication_sasl_parsing() {
+        let data = b"\x00\x00\x00\x0ASCRAM-SHA-256\0SCRAM-SHA-256-PLUS\0\0";
+        let msg = from_auth_body_bytes(data).unwrap();
+
+        assert_eq!(
+            msg,
+            StartupResponse::AuthenticationSASL(AuthenticationSASL {
+                mechanisms: vec![
+                    CString::new("SCRAM-SHA-256").unwrap(),
+                    CString::new("SCRAM-SHA-256-PLUS").unwrap(),
+                ],
+            })
+        );
+    }
+
+    #[test]
+    fn test_authentication_sasl_single_mechanism() {
+        let msg = AuthenticationSASL {
+            mechanisms: vec![CString::new("SCRAM-SHA-256").unwrap()],
+        };
+        assert_eq!(
+            to_auth_body_bytes(&msg).unwrap(),
+            b"\x00\x00\x00\x0ASCRAM-SHA-256\0\0"
+        );
+    }
+
+    #[test]
+    fn test_authentication_sasl_continue_writing() {
+        let msg = AuthenticationSASLContinue {
+            data: b"r=challenge_data".to_vec(),
+        };
+        assert_eq!(
+            to_auth_body_bytes(&msg).unwrap(),
+            b"\x00\x00\x00\x0Br=challenge_data"
+        );
+    }
+
+    #[test]
+    fn test_authentication_sasl_continue_parsing() {
+        let data = b"\x00\x00\x00\x0Br=challenge_data";
+        let msg = from_auth_body_bytes(data).unwrap();
+
+        assert_eq!(
+            msg,
+            StartupResponse::AuthenticationSASLContinue(AuthenticationSASLContinue {
+                data: b"r=challenge_data".to_vec(),
+            })
+        );
+    }
+
+    #[test]
+    fn test_authentication_sasl_continue_empty_data() {
+        let msg = AuthenticationSASLContinue { data: vec![] };
+        assert_eq!(to_auth_body_bytes(&msg).unwrap(), b"\x00\x00\x00\x0B");
+    }
+
+    #[test]
+    fn test_authentication_sasl_final_writing() {
+        let msg = AuthenticationSASLFinal {
+            data: b"v=server_signature".to_vec(),
+        };
+        assert_eq!(
+            to_auth_body_bytes(&msg).unwrap(),
+            b"\x00\x00\x00\x0Cv=server_signature"
+        );
+    }
+
+    #[test]
+    fn test_authentication_sasl_final_parsing() {
+        let data = b"\x00\x00\x00\x0Cv=server_signature";
+        let msg = from_auth_body_bytes(data).unwrap();
+
+        assert_eq!(
+            msg,
+            StartupResponse::AuthenticationSASLFinal(AuthenticationSASLFinal {
+                data: b"v=server_signature".to_vec(),
+            })
+        );
+    }
+
+    #[test]
+    fn test_authentication_sasl_final_empty_data() {
+        let msg = AuthenticationSASLFinal { data: vec![] };
+        assert_eq!(to_auth_body_bytes(&msg).unwrap(), b"\x00\x00\x00\x0C");
+    }
+
+    // Error tests
+    #[test]
+    fn test_parse_error_unknown_type_byte() {
+        let data = b"X\x00\x00\x00\x04";
+        let err = from_bytes(data).unwrap_err();
+
+        assert_eq!(
+            err.to_string(),
+            "unknown type byte for StartupResponse: 'X' (expected R or v)"
+        );
+    }
+
+    #[test]
+    fn test_parse_error_unknown_auth_type() {
+        let data = b"\x00\x00\x00\xFF";
+        let err = from_auth_body_bytes(data).unwrap_err();
+
+        assert_eq!(
+            err.to_string(),
+            "unknown authentication type: 255 (expected 0, 3, 5, 7, 8, 9, 10, 11, or 12)"
+        );
+    }
+
+    #[test]
+    fn test_parse_error_authentication_ok_extra_bytes() {
+        let data = b"\x00\x00\x00\x00\xFF\xFF";
+        let err = from_auth_body_bytes(data).unwrap_err();
+
+        assert_eq!(err.to_string(), "extra bytes found in AuthenticationOk");
+    }
+
+    #[test]
+    fn test_parse_error_authentication_cleartext_password_extra_bytes() {
+        let data = b"\x00\x00\x00\x03\xFF";
+        let err = from_auth_body_bytes(data).unwrap_err();
+
+        assert_eq!(
+            err.to_string(),
+            "extra bytes found in AuthenticationCleartextPassword"
+        );
+    }
+
+    #[test]
+    fn test_parse_error_authentication_md5_password_incomplete_salt() {
+        let data = b"\x00\x00\x00\x05\x12\x34";
+        let err = from_auth_body_bytes(data).unwrap_err();
+
+        assert_eq!(
+            err.to_string(),
+            "packet too short for AuthenticationMD5Password salt"
+        );
+    }
+
+    #[test]
+    fn test_parse_error_authentication_md5_password_extra_bytes() {
+        let data = b"\x00\x00\x00\x05\x12\x34\x56\x78\xFF";
+        let err = from_auth_body_bytes(data).unwrap_err();
+
+        assert_eq!(
+            err.to_string(),
+            "extra bytes found in AuthenticationMD5Password"
+        );
+    }
+
+    #[test]
+    fn test_parse_error_authentication_gss_extra_bytes() {
+        let data = b"\x00\x00\x00\x07\xFF";
+        let err = from_auth_body_bytes(data).unwrap_err();
+
+        assert_eq!(err.to_string(), "extra bytes found in AuthenticationGSS");
+    }
+
+    #[test]
+    fn test_parse_error_authentication_sspi_extra_bytes() {
+        let data = b"\x00\x00\x00\x09\xFF";
+        let err = from_auth_body_bytes(data).unwrap_err();
+
+        assert_eq!(err.to_string(), "extra bytes found in AuthenticationSSPI");
+    }
+
+    #[test]
+    fn test_parse_error_authentication_sasl_unterminated_mechanism() {
+        let data = b"\x00\x00\x00\x0ASCRAM-SHA-256";
+        let err = from_auth_body_bytes(data).unwrap_err();
+
+        assert_eq!(
+            err.to_string(),
+            "unterminated authentication mechanism name in AuthenticationSASL"
+        );
+    }
+}
