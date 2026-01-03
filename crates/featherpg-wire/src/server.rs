@@ -4,14 +4,13 @@ use std::{
 };
 
 use crate::{
-    ProtocolVersion,
     errors::{DiagnosticMessage, DiagnosticSeverity, WireFormatError},
     io_util::BufReaderWriter,
     message::{
         AuthenticationOk, CancelRequest, DirectTLS, ErrorResponse, GSSENCRequest, GSSENCResponse,
         ImplicitTerminate, InitialRequest, InitialRequestLimits, InitialRequestState,
-        NegotiateProtocolVersion, NoGSSENC, NoSSL, SSLRequest, SSLResponse, StartupMessage,
-        StartupResponse,
+        NegotiateProtocolVersion, NoGSSENC, NoSSL, ProtocolVersion, SSLRequest, SSLResponse,
+        StartupMessage, StartupResponse,
     },
 };
 

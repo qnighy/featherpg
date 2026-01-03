@@ -4,10 +4,9 @@ use std::{
 };
 
 use crate::{
-    ProtocolVersion,
     common::GetReadBuf,
     errors::WireFormatError,
-    message::ErrorResponse,
+    message::{ErrorResponse, ProtocolVersion},
     message_common::{ReadSizedErrors, ReadWireExt, WriteWireExt},
 };
 
