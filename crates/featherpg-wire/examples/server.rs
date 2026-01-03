@@ -3,7 +3,10 @@ use std::net::{TcpListener, TcpStream};
 use std::thread::{self, JoinHandle};
 
 use featherpg_wire::message::{CancelRequest, StartupMessage};
-use featherpg_wire::server::{ServerInStartupResponse, ServerStream, TypedInitialRequest};
+use featherpg_wire::server::{
+    ServerInStartupResponse, ServerStream, TypedCleartextPasswordClientResponse,
+    TypedInitialRequest,
+};
 
 fn main() -> io::Result<()> {
     let port = 15432;
@@ -73,6 +76,8 @@ fn handle_client(stream: TcpStream) -> io::Result<()> {
     }
 }
 
+const REQUEST_PASSWORD: bool = false;
+
 fn handle_startup_message(
     mut s: ServerStream<TcpStream>,
     server: ServerInStartupResponse,
@@ -80,7 +85,27 @@ fn handle_startup_message(
 ) -> io::Result<()> {
     eprintln!("Processing StartupMessage: {:?}", msg);
 
-    let _server = server.authentication_ok(&mut s)?;
+    let _server = if REQUEST_PASSWORD {
+        let server = server.request_cleartext_password(&mut s)?;
+        let server = match server {
+            TypedCleartextPasswordClientResponse::CleartextPasswordMessage(
+                cleartext_password_message,
+                server,
+            ) => {
+                eprintln!(
+                    "Received cleartext password: {:?}",
+                    cleartext_password_message.password
+                );
+                server
+            }
+            TypedCleartextPasswordClientResponse::ImplicitTerminate(_) => {
+                return Ok(());
+            }
+        };
+        server.authentication_ok(&mut s)?
+    } else {
+        server.authentication_ok(&mut s)?
+    };
 
     Ok(())
 }

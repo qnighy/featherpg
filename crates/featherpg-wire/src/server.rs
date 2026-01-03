@@ -4,14 +4,19 @@ use crate::{
     errors::{DiagnosticMessage, WireFormatError},
     io_util::BufReaderWriter,
     message::{
-        AuthenticationOk, CancelRequest, DirectTLS, ErrorResponse, GSSENCRequest, GSSENCResponse,
+        AuthenticationCleartextPassword, AuthenticationMD5Password, AuthenticationOk,
+        CancelRequest, CleartextPasswordClientResponse, CleartextPasswordClientResponseLimits,
+        CleartextPasswordMessage, DirectTLS, ErrorResponse, GSSENCRequest, GSSENCResponse,
         ImplicitTerminate, InitialRequest, InitialRequestLimits, InitialRequestState,
+        MD5PasswordClientResponse, MD5PasswordClientResponseLimits, MD5PasswordMessage,
         NegotiateProtocolVersion, NoGSSENC, NoSSL, ProtocolVersion, SSLRequest, SSLResponse,
         StartupMessage, StartupResponse,
     },
 };
 
 const MAX_STARTUP_PACKET_LENGTH: usize = 10000;
+const PQ_SMALL_MESSAGE_LIMIT: usize = 10000;
+// const PQ_LARGE_MESSAGE_LIMIT: usize = 0x3FFFFFFF; // 1 GiB
 
 /// A struct containing the underlying stream and buffers for a connection
 /// as seen from the server side.
@@ -134,6 +139,7 @@ impl ServerInInitialRequest {
 }
 
 /// Like [InitialRequest] but includes a typed next state.
+#[derive(Debug)]
 pub enum TypedInitialRequest {
     StartupMessage(StartupMessage, ServerInStartupResponse),
     SSLRequest(SSLRequest, ServerInTLSResponse),
@@ -388,66 +394,113 @@ impl ServerInStartupResponse {
             protocol: self.protocol,
         })
     }
+
+    pub fn request_cleartext_password<S>(
+        self,
+        s: &mut ServerStream<S>,
+    ) -> IoResult<TypedCleartextPasswordClientResponse>
+    where
+        S: Read + Write,
+    {
+        let response =
+            StartupResponse::AuthenticationCleartextPassword(AuthenticationCleartextPassword);
+        response.write_to(&mut s.stream)?;
+        s.stream.flush()?;
+
+        let client_response = CleartextPasswordClientResponse::read_from(
+            &mut s.stream,
+            &CleartextPasswordClientResponseLimits {
+                max_length: PQ_SMALL_MESSAGE_LIMIT,
+            },
+        )?;
+        let client_response = match client_response {
+            CleartextPasswordClientResponse::CleartextPasswordMessage(
+                cleartext_password_message,
+            ) => TypedCleartextPasswordClientResponse::CleartextPasswordMessage(
+                cleartext_password_message,
+                ServerInAuthenticationResponse {
+                    protocol: self.protocol,
+                },
+            ),
+            CleartextPasswordClientResponse::ImplicitTerminate(implicit_terminate) => {
+                TypedCleartextPasswordClientResponse::ImplicitTerminate(implicit_terminate)
+            }
+        };
+
+        Ok(client_response)
+    }
+
+    pub fn request_md5_password<S>(
+        self,
+        s: &mut ServerStream<S>,
+        salt: [u8; 4],
+    ) -> IoResult<TypedMD5PasswordClientResponse>
+    where
+        S: Read + Write,
+    {
+        let response =
+            StartupResponse::AuthenticationMD5Password(AuthenticationMD5Password { salt });
+        response.write_to(&mut s.stream)?;
+        s.stream.flush()?;
+
+        let client_response = MD5PasswordClientResponse::read_from(
+            &mut s.stream,
+            &MD5PasswordClientResponseLimits {
+                max_length: PQ_SMALL_MESSAGE_LIMIT,
+            },
+        )?;
+        let client_response = match client_response {
+            MD5PasswordClientResponse::MD5PasswordMessage(md5_password_message) => {
+                TypedMD5PasswordClientResponse::MD5PasswordMessage(
+                    md5_password_message,
+                    ServerInAuthenticationResponse {
+                        protocol: self.protocol,
+                    },
+                )
+            }
+            MD5PasswordClientResponse::ImplicitTerminate(implicit_terminate) => {
+                TypedMD5PasswordClientResponse::ImplicitTerminate(implicit_terminate)
+            }
+        };
+        Ok(client_response)
+    }
+
+    // TODO: handle other authentication methods:
+    //
+    // - AuthenticationGSS (7, 8)
+    // - AuthenticationSSPI (9, 8)
+    // - AuthenticationSASL (10, 11, 12)
+    // - Archaic authentications:
+    //   - AuthenticationKerberosV4 (1)
+    //   - AuthenticationKerberosV5 (2)
+    //   - AuthenticationCryptPassword (4)
+    //   - AuthenticationSCMCredential (6)
+    //
+    // cf. OK is 0, cleartext is 3, MD5 is 5
+
+    pub fn error_response<S>(self, s: &mut ServerStream<S>, msg: ErrorResponse) -> IoResult<()>
+    where
+        S: Read + Write,
+    {
+        let response = StartupResponse::ErrorResponse(msg);
+        response.write_to(&mut s.stream)?;
+        s.stream.flush()?;
+        Ok(())
+    }
 }
 
-/// A server in the CleartextPasswordMessage state.
-///
-/// You need to read a CleartextPasswordMessage from the client.
+/// Like [CleartextPasswordClientResponse] but includes a typed next state.
 #[derive(Debug)]
-pub struct ServerInCleartextPasswordMessage {
-    protocol: NegotiatedProtocol,
+pub enum TypedCleartextPasswordClientResponse {
+    CleartextPasswordMessage(CleartextPasswordMessage, ServerInAuthenticationResponse),
+    ImplicitTerminate(ImplicitTerminate),
 }
 
-impl ServerInCleartextPasswordMessage {
-    /// Creates a new ServerInCleartextPasswordMessage.
-    ///
-    /// It may break protocol invariants. Use with caution.
-    pub fn new_unchecked(protocol: NegotiatedProtocol) -> Self {
-        Self { protocol }
-    }
-
-    /// Creats its clone.
-    ///
-    /// It may break protocol invariants. Use with caution.
-    pub fn clone_unchecked(&self) -> Self {
-        Self {
-            protocol: self.protocol.clone(),
-        }
-    }
-
-    pub fn protocol(&self) -> &NegotiatedProtocol {
-        &self.protocol
-    }
-}
-
-/// A server in the MD5PasswordMessage state.
-///
-/// You need to read an MD5PasswordMessage from the client.
+/// Like [MD5PasswordClientResponse] but includes a typed next state.
 #[derive(Debug)]
-pub struct ServerInMD5PasswordMessage {
-    protocol: NegotiatedProtocol,
-}
-
-impl ServerInMD5PasswordMessage {
-    /// Creates a new ServerInMD5PasswordMessage.
-    ///
-    /// It may break protocol invariants. Use with caution.
-    pub fn new_unchecked(protocol: NegotiatedProtocol) -> Self {
-        Self { protocol }
-    }
-
-    /// Creats its clone.
-    ///
-    /// It may break protocol invariants. Use with caution.
-    pub fn clone_unchecked(&self) -> Self {
-        Self {
-            protocol: self.protocol.clone(),
-        }
-    }
-
-    pub fn protocol(&self) -> &NegotiatedProtocol {
-        &self.protocol
-    }
+pub enum TypedMD5PasswordClientResponse {
+    MD5PasswordMessage(MD5PasswordMessage, ServerInAuthenticationResponse),
+    ImplicitTerminate(ImplicitTerminate),
 }
 
 /// A server in the GSSResponse state.
@@ -597,6 +650,62 @@ impl ServerInSASLResponse {
 
     pub fn protocol(&self) -> &NegotiatedProtocol {
         &self.protocol
+    }
+}
+
+/// A server in the StartupResponse state.
+///
+/// You need to write a StartupResponse to the client.
+#[derive(Debug)]
+pub struct ServerInAuthenticationResponse {
+    protocol: NegotiatedProtocol,
+}
+
+impl ServerInAuthenticationResponse {
+    /// Creates a new ServerInAuthenticationResponse.
+    ///
+    /// It may break protocol invariants. Use with caution.
+    pub fn new_unchecked(protocol: NegotiatedProtocol) -> Self {
+        Self { protocol }
+    }
+
+    /// Creats its clone.
+    ///
+    /// It may break protocol invariants. Use with caution.
+    pub fn clone_unchecked(&self) -> Self {
+        Self {
+            protocol: self.protocol.clone(),
+        }
+    }
+
+    pub fn protocol(&self) -> &NegotiatedProtocol {
+        &self.protocol
+    }
+
+    pub fn authentication_ok<S>(
+        self,
+        s: &mut ServerStream<S>,
+    ) -> IoResult<ServerInBackendStartupMessage>
+    where
+        S: Read + Write,
+    {
+        let response = StartupResponse::AuthenticationOk(AuthenticationOk);
+        response.write_to(&mut s.stream)?;
+        s.stream.flush()?;
+
+        Ok(ServerInBackendStartupMessage {
+            protocol: self.protocol,
+        })
+    }
+
+    pub fn error_response<S>(self, s: &mut ServerStream<S>, msg: ErrorResponse) -> IoResult<()>
+    where
+        S: Read + Write,
+    {
+        let response = StartupResponse::ErrorResponse(msg);
+        response.write_to(&mut s.stream)?;
+        s.stream.flush()?;
+        Ok(())
     }
 }
 
