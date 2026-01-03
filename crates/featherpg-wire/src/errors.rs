@@ -167,6 +167,22 @@ pub(crate) enum WireFormatError {
     #[error("extra bytes found in CleartextPasswordMessage")]
     CleartextPasswordMessageExtraBytes,
 
+    #[error("unknown type byte for MD5PasswordClientResponse: {} (expected R or v)", describe_byte(*type_byte))]
+    MD5PasswordClientResponseUnknownTypeByte { type_byte: u8 },
+
+    #[error("unexpected EOF while reading MD5PasswordMessage length")]
+    MD5PasswordMessageIncompleteLength,
+    #[error("found negative length {length} in MD5PasswordMessage")]
+    MD5PasswordMessageNegativeLength { length: isize },
+    #[error("MD5PasswordMessage too large (found {length}, limit {max_length})")]
+    MD5PasswordMessageTooLarge { length: usize, max_length: usize },
+    #[error("unexpected EOF while reading MD5PasswordMessage body")]
+    MD5PasswordMessageIncompleteBody,
+    #[error("unterminated password in MD5PasswordMessage")]
+    MD5PasswordMessageUnterminatedCString,
+    #[error("extra bytes found in MD5PasswordMessage")]
+    MD5PasswordMessageExtraBytes,
+
     #[error("unexpected EOF while reading ErrorResponse/NoticeResponse length")]
     ErrorOrNoticeResponseIncompleteLength,
     #[error("found negative length {length} in ErrorResponse/NoticeResponse")]
