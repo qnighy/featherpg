@@ -135,7 +135,9 @@ mod tests {
 
     fn from_bytes(data: &[u8]) -> IoResult<SSLResponse> {
         let mut reader = data;
-        SSLResponse::read_from(&mut reader)
+        let msg = SSLResponse::read_from(&mut reader)?;
+        assert_eq!(reader, b"", "inexact read");
+        Ok(msg)
     }
 
     #[test]

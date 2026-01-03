@@ -54,8 +54,12 @@ impl GSSENCResponse {
         reader.read_exact(slice::from_mut(&mut type_byte))?;
 
         match type_byte {
-            UseGSSENC::TYPE_BYTE => UseGSSENC::read_after_type_byte(reader, type_byte).map(Into::into),
-            NoGSSENC::TYPE_BYTE => NoGSSENC::read_after_type_byte(reader, type_byte).map(Into::into),
+            UseGSSENC::TYPE_BYTE => {
+                UseGSSENC::read_after_type_byte(reader, type_byte).map(Into::into)
+            }
+            NoGSSENC::TYPE_BYTE => {
+                NoGSSENC::read_after_type_byte(reader, type_byte).map(Into::into)
+            }
             ErrorResponse::TYPE_BYTE => {
                 ErrorResponse::read_after_type_byte(reader, type_byte).map(Into::into)
             }
@@ -135,7 +139,9 @@ mod tests {
 
     fn from_bytes(data: &[u8]) -> IoResult<GSSENCResponse> {
         let mut reader = data;
-        GSSENCResponse::read_from(&mut reader)
+        let msg = GSSENCResponse::read_from(&mut reader)?;
+        assert_eq!(reader, b"", "inexact read");
+        Ok(msg)
     }
 
     #[test]

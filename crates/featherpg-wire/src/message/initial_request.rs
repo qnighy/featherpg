@@ -581,7 +581,9 @@ mod tests {
         state: InitialRequestState,
     ) -> IoResult<InitialRequest> {
         let mut reader = data;
-        InitialRequest::read_from(&mut reader, limits, state)
+        let msg = InitialRequest::read_from(&mut reader, limits, state)?;
+        assert_eq!(reader, b"", "inexact read");
+        Ok(msg)
     }
 
     /// Helper function to focus on the packet body only.
@@ -605,7 +607,7 @@ mod tests {
     }
 
     #[test]
-    fn test_startup_message_writing_packet() {
+    fn test_initial_request_writing_packet() {
         let msg = StartupMessage {
             version: ProtocolVersion::new(3, 0),
             database_name: CString::new("testdb").unwrap(),
@@ -623,7 +625,7 @@ mod tests {
     }
 
     #[test]
-    fn test_startup_message_parsing_packet() {
+    fn test_initial_request_parsing_packet() {
         let data = &b"\x00\x00\x00\x27\x00\x03\x00\x00user\0testuser\0database\0testdb\0\0"[..];
         let msg = from_bytes(
             data,
@@ -1070,28 +1072,6 @@ mod tests {
     }
 
     #[test]
-    fn test_ssl_request_writing_packet() {
-        let msg = SSLRequest.into();
-
-        // 0x04D2 = 1234, 0x162F = 5679
-        assert_eq!(to_bytes(&msg).unwrap(), b"\x00\x00\x00\x08\x04\xD2\x16\x2F");
-    }
-
-    #[test]
-    fn test_ssl_request_parsing_packet() {
-        // 0x04D2 = 1234, 0x162F = 5679
-        let data = &b"\x00\x00\x00\x08\x04\xD2\x16\x2F"[..];
-        let msg = from_bytes(
-            data,
-            &InitialRequestLimits { max_length: 1024 },
-            InitialRequestState::Other,
-        )
-        .unwrap();
-
-        assert_eq!(msg, SSLRequest.into());
-    }
-
-    #[test]
     fn test_ssl_request_writing() {
         let msg = SSLRequest.into();
 
@@ -1118,28 +1098,6 @@ mod tests {
     }
 
     #[test]
-    fn test_gssenc_request_writing_packet() {
-        let msg = GSSENCRequest.into();
-
-        // 0x04D2 = 1234, 0x1630 = 5680
-        assert_eq!(to_bytes(&msg).unwrap(), b"\x00\x00\x00\x08\x04\xD2\x16\x30");
-    }
-
-    #[test]
-    fn test_gssenc_request_parsing_packet() {
-        // 0x04D2 = 1234, 0x1630 = 5680
-        let data = &b"\x00\x00\x00\x08\x04\xD2\x16\x30"[..];
-        let msg = from_bytes(
-            data,
-            &InitialRequestLimits { max_length: 1024 },
-            InitialRequestState::Other,
-        )
-        .unwrap();
-
-        assert_eq!(msg, GSSENCRequest.into());
-    }
-
-    #[test]
     fn test_gssenc_request_writing() {
         let msg = GSSENCRequest.into();
 
@@ -1163,41 +1121,6 @@ mod tests {
         let err = from_body_bytes(data).unwrap_err();
 
         assert_eq!(err.to_string(), "extra bytes found in GSSENCRequest");
-    }
-
-    #[test]
-    fn test_cancel_request_writing_packet() {
-        let msg = CancelRequest {
-            process_id: 12345,
-            secret_key: b"secretkeydata".to_vec(),
-        }
-        .into();
-        // 0x04D2 = 1234, 0x162E = 5678
-        assert_eq!(
-            to_bytes(&msg).unwrap(),
-            b"\x00\x00\x00\x19\x04\xD2\x16\x2E\x00\x00\x30\x39secretkeydata"
-        );
-    }
-
-    #[test]
-    fn test_cancel_request_parsing_packet() {
-        // 0x04D2 = 1234, 0x162E = 5678
-        let data = &b"\x00\x00\x00\x19\x04\xD2\x16\x2E\x00\x00\x30\x39secretkeydata"[..];
-        let msg = from_bytes(
-            data,
-            &InitialRequestLimits { max_length: 1024 },
-            InitialRequestState::Other,
-        )
-        .unwrap();
-
-        assert_eq!(
-            msg,
-            CancelRequest {
-                process_id: 12345,
-                secret_key: b"secretkeydata".to_vec(),
-            }
-            .into()
-        );
     }
 
     #[test]
@@ -1327,5 +1250,49 @@ mod tests {
             err.to_string(),
             "secret key too long in CancelRequest (found 257, limit 256)",
         );
+    }
+
+    #[test]
+    fn test_direct_tls_writing_packet() {
+        let msg = DirectTLS.into();
+        assert_eq!(to_bytes(&msg).unwrap(), b"");
+    }
+
+    #[test]
+    fn test_direct_tls_parsing_packet() {
+        let mut reader: &[u8] = b"\x16__followed_by_tls_handshake_data__";
+        let msg = InitialRequest::read_from(
+            &mut reader,
+            &InitialRequestLimits { max_length: 10000 },
+            InitialRequestState::ConnectionStart,
+        )
+        .unwrap();
+        assert_eq!(
+            (msg, reader),
+            (
+                DirectTLS.into(),
+                // The first byte is retained
+                &b"\x16__followed_by_tls_handshake_data__"[..]
+            )
+        );
+    }
+
+    #[test]
+    fn test_implicit_terminate_writing_packet() {
+        let msg = ImplicitTerminate.into();
+        assert_eq!(to_bytes(&msg).unwrap(), b"");
+    }
+
+    #[test]
+    fn test_implicit_terminate_parsing_packet() {
+        let data = b"";
+        let msg = from_bytes(
+            data,
+            &InitialRequestLimits { max_length: 10000 },
+            InitialRequestState::Other,
+        )
+        .unwrap();
+
+        assert_eq!(msg, ImplicitTerminate.into());
     }
 }

@@ -701,7 +701,9 @@ mod tests {
 
     fn from_bytes(data: &[u8]) -> IoResult<StartupResponse> {
         let mut reader = data;
-        StartupResponse::read_from(&mut reader)
+        let msg = StartupResponse::read_from(&mut reader)?;
+        assert_eq!(reader, b"", "inexact read");
+        Ok(msg)
     }
 
     /// Helper function to focus on the packet body only.
