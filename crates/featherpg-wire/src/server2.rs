@@ -306,6 +306,7 @@ impl ServerInTLSResponse {
 
         let response = SSLResponse::NoSSL(NoSSL);
         response.write_to(&mut s.stream)?;
+        s.stream.flush()?;
 
         Ok(ServerInInitialRequest {
             initial_request_state: InitialRequestState::Other,
@@ -318,6 +319,7 @@ impl ServerInTLSResponse {
     {
         let response = SSLResponse::ErrorResponse(msg);
         response.write_to(&mut s.stream)?;
+        s.stream.flush()?;
         Ok(())
     }
 }
@@ -361,6 +363,7 @@ impl ServerInGSSENCResponse {
     {
         let response = GSSENCResponse::NoGSSENC(NoGSSENC);
         response.write_to(&mut s.stream)?;
+        s.stream.flush()?;
 
         Ok(ServerInInitialRequest {
             initial_request_state: InitialRequestState::Other,
@@ -373,6 +376,7 @@ impl ServerInGSSENCResponse {
     {
         let response = GSSENCResponse::ErrorResponse(msg);
         response.write_to(&mut s.stream)?;
+        s.stream.flush()?;
         Ok(())
     }
 }
@@ -415,6 +419,7 @@ impl ServerInStartupResponse {
     {
         let response = StartupResponse::AuthenticationOk(AuthenticationOk);
         response.write_to(&mut s.stream)?;
+        s.stream.flush()?;
 
         Ok(ServerInBackendStartupMessage {
             protocol: self.protocol,

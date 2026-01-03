@@ -3,10 +3,7 @@ use std::net::{TcpListener, TcpStream};
 use std::thread::{self, JoinHandle};
 
 use featherpg_wire::message::{CancelRequest, StartupMessage};
-use featherpg_wire::server::{
-    Authenticator, GSSENCResponse, InitializationNotifier, InitializeBackend, NegotiateEncryption,
-    NoGSSENCUpgrade, NoTLSUpgrade, Session, TLSResponse, handle_session,
-};
+use featherpg_wire::server2::{ServerInStartupResponse, ServerStream, TypedInitialRequest};
 
 fn main() -> io::Result<()> {
     let port = 15432;
@@ -46,61 +43,52 @@ fn main() -> io::Result<()> {
     Ok(())
 }
 
-struct ServerSession;
-
-impl<S> NegotiateEncryption<S> for ServerSession {
-    type UpgradeToTLS = NoTLSUpgrade;
-
-    type UpgradeToGSSENC = NoGSSENCUpgrade;
-
-    type InitializeBackend = Self;
-
-    fn tls(&mut self) -> io::Result<TLSResponse<Self::UpgradeToTLS>> {
-        eprintln!("No TLS");
-        Ok(TLSResponse::NoTLS)
-    }
-
-    fn gssenc(&mut self) -> io::Result<GSSENCResponse<Self::UpgradeToGSSENC>> {
-        eprintln!("No GSSENC");
-        Ok(GSSENCResponse::NoGSSENC)
-    }
-
-    fn start(
-        self,
-        req: StartupMessage,
-        _auth: &mut Authenticator<'_>,
-    ) -> io::Result<Self::InitializeBackend> {
-        eprintln!("Starting session with StartupMessage: {:?}", req);
-        Ok(Self)
-    }
-
-    fn process_cancel(self, req: CancelRequest) -> io::Result<()> {
-        eprintln!(
-            "Processing CancelRequest: process_id={}, secret_key={:?}",
-            req.process_id, req.secret_key
-        );
-        Ok(())
-    }
-}
-
-impl InitializeBackend for ServerSession {
-    type Session = Self;
-
-    fn initialize_backend(
-        self,
-        _notifier: &mut InitializationNotifier<'_>,
-    ) -> io::Result<Self::Session> {
-        eprintln!("Backend initialized");
-        Ok(self)
-    }
-}
-
-impl Session for ServerSession {}
-
 fn handle_client(stream: TcpStream) -> io::Result<()> {
-    println!("Client connected from: {:?}", stream.peer_addr()?);
+    eprintln!("Client connected from: {:?}", stream.peer_addr()?);
 
-    handle_session(stream, ServerSession)?;
+    // handle_session(stream, ServerSession_)?;
+    let (mut s, mut server) = ServerStream::new(stream);
 
+    loop {
+        match server.read_initial_request(&mut s)? {
+            TypedInitialRequest::StartupMessage(msg, server) => {
+                return handle_startup_message(s, server, msg);
+            }
+            TypedInitialRequest::SSLRequest(_, server2)
+            | TypedInitialRequest::DirectTLS(_, server2) => {
+                eprintln!("Refusing TLS upgrade");
+                server = server2.no_tls(&mut s)?;
+            }
+            TypedInitialRequest::GSSENCRequest(_, server2) => {
+                eprintln!("Refusing GSSENC upgrade");
+                server = server2.no_gssenc(&mut s)?;
+            }
+            TypedInitialRequest::CancelRequest(msg) => {
+                return handle_cancel_request(msg);
+            }
+            TypedInitialRequest::ImplicitTerminate(_) => {
+                return Ok(());
+            }
+        }
+    }
+}
+
+fn handle_startup_message(
+    mut s: ServerStream<TcpStream>,
+    server: ServerInStartupResponse,
+    msg: StartupMessage,
+) -> io::Result<()> {
+    eprintln!("Processing StartupMessage: {:?}", msg);
+
+    let _server = server.authentication_ok(&mut s)?;
+
+    Ok(())
+}
+
+fn handle_cancel_request(msg: CancelRequest) -> io::Result<()> {
+    eprintln!(
+        "Processing CancelRequest: process_id={}, secret_key={:?}",
+        msg.process_id, msg.secret_key
+    );
     Ok(())
 }
