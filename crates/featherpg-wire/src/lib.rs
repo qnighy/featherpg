@@ -7,5 +7,4 @@ pub mod errors;
 mod io_util;
 pub mod message;
 mod message_common;
-pub mod server;
 pub mod server2;
