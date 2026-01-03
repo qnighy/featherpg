@@ -564,7 +564,7 @@ mod tests {
         assert!(bytes.len() >= 4, "packet too short to contain length");
         let len = <[u8; 4]>::try_from(&bytes[0..4]).unwrap();
         let len = u32::from_be_bytes(len) as usize;
-        assert_eq!(len, bytes.len());
+        assert_eq!(len, bytes.len(), "length field mismatch");
 
         bytes[4..].to_vec()
     }
@@ -596,7 +596,6 @@ mod tests {
         packet
     }
 
-    #[track_caller]
     fn from_body_bytes(data: &[u8]) -> IoResult<InitialRequest> {
         from_bytes(
             &compose_packet(data),
