@@ -46,7 +46,7 @@ impl SSLResponse {
             UseSSL::TYPE_BYTE => Ok(SSLResponse::UseSSL(UseSSL)),
             NoSSL::TYPE_BYTE => Ok(SSLResponse::NoSSL(NoSSL)),
             ErrorResponse::TYPE_BYTE => {
-                let error = ErrorResponse::read_after_type_byte(reader)?;
+                let error = ErrorResponse::read_after_type_byte(reader, type_byte)?;
                 Ok(SSLResponse::ErrorResponse(error))
             }
             _ => Err(WireFormatError::SSLResponseUnknownTypeByte { type_byte }.into()),

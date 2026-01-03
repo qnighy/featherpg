@@ -45,10 +45,12 @@ impl ErrorResponse {
         write_diagnostic_to(&self.error, writer)
     }
 
-    pub fn read_after_type_byte<R>(reader: &mut R) -> IoResult<Self>
+    pub fn read_after_type_byte<R>(reader: &mut R, type_byte: u8) -> IoResult<Self>
     where
         R: GetReadBuf + ?Sized,
     {
+        assert_eq!(type_byte, Self::TYPE_BYTE);
+
         let error = read_diagnostic(reader)?;
         Ok(ErrorResponse { error })
     }

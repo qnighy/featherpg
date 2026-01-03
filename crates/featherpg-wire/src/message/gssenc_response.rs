@@ -46,7 +46,7 @@ impl GSSENCResponse {
             UseGSSENC::TYPE_BYTE => Ok(GSSENCResponse::UseGSSENC(UseGSSENC)),
             NoGSSENC::TYPE_BYTE => Ok(GSSENCResponse::NoGSSENC(NoGSSENC)),
             ErrorResponse::TYPE_BYTE => {
-                let error = ErrorResponse::read_after_type_byte(reader)?;
+                let error = ErrorResponse::read_after_type_byte(reader, type_byte)?;
                 Ok(GSSENCResponse::ErrorResponse(error))
             }
             _ => Err(WireFormatError::GSSENCResponseUnknownTypeByte { type_byte }.into()),

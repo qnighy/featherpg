@@ -97,6 +97,54 @@ pub(crate) enum WireFormatError {
     #[error("unknown type byte for GSSENC response: {} (expected G, N, or E)", describe_byte(*type_byte))]
     GSSENCResponseUnknownTypeByte { type_byte: u8 },
 
+    #[error("server connection closed before StartupResponse")]
+    StartupResponseMissingTypeByte,
+    #[error("unknown type byte for StartupResponse: {} (expected R or v)", describe_byte(*type_byte))]
+    StartupResponseUnknownTypeByte { type_byte: u8 },
+
+    #[error("unexpected EOF while reading NegotiateProtocolVersion length")]
+    NegotiateProtocolVersionIncompleteLength,
+    #[error("found negative length {length} in NegotiateProtocolVersion")]
+    NegotiateProtocolVersionNegativeLength { length: isize },
+    #[error("NegotiateProtocolVersion too large (found {length}, limit {max_length})")]
+    NegotiateProtocolVersionTooLarge { length: usize, max_length: usize },
+    #[error("unexpected EOF while reading NegotiateProtocolVersion body")]
+    NegotiateProtocolVersionIncompleteBody,
+    #[error("packet too short for NegotiateProtocolVersion version")]
+    NegotiateProtocolVersionIncompleteVersion,
+    #[error("unterminated option name in NegotiateProtocolVersion")]
+    NegotiateProtocolVersionIncompleteOptionName,
+
+    #[error("unexpected EOF while reading Authentication length")]
+    AuthenticationIncompleteLength,
+    #[error("found negative length {length} in Authentication")]
+    AuthenticationNegativeLength { length: isize },
+    #[error("Authentication too large (found {length}, limit {max_length})")]
+    AuthenticationTooLarge { length: usize, max_length: usize },
+    #[error("unexpected EOF while reading Authentication body")]
+    AuthenticationIncompleteBody,
+    #[error("packet too short for Authentication type")]
+    AuthenticationIncompleteType,
+    #[error("unknown authentication type: {auth_type} (expected 0, 3, 5, 7, 8, 9, 10, 11, or 12)")]
+    AuthenticationUnknownType { auth_type: u32 },
+
+    #[error("extra bytes found in AuthenticationOk")]
+    AuthenticationOkExtraBytes,
+    #[error("extra bytes found in AuthenticationCleartextPassword")]
+    AuthenticationCleartextPasswordExtraBytes,
+    #[error("packet too short for AuthenticationMD5Password salt")]
+    AuthenticationMD5PasswordIncompleteSalt,
+    #[error("extra bytes found in AuthenticationMD5Password")]
+    AuthenticationMD5PasswordExtraBytes,
+    #[error("extra bytes found in AuthenticationGSS")]
+    AuthenticationGSSExtraBytes,
+    #[error("extra bytes found in AuthenticationSSPI")]
+    AuthenticationSSPIExtraBytes,
+    #[error("unterminated authentication mechanism name in AuthenticationSASL")]
+    AuthenticationSASLUnterminatedAuthenticationMechanismName,
+    #[error("extra bytes found in AuthenticationSASL")]
+    AuthenticationSASLExtraBytes,
+
     #[error("unexpected EOF while reading ErrorResponse/NoticeResponse length")]
     ErrorOrNoticeResponseIncompleteLength,
     #[error("found negative length {length} in ErrorResponse/NoticeResponse")]
