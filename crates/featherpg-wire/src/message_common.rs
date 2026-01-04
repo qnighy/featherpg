@@ -3,7 +3,7 @@ use std::{
     io::{Error as IoError, ErrorKind as IoErrorKind, Result as IoResult, Write},
 };
 
-use crate::{common::GetReadBuf, errors::WireFormatError, message::ProtocolVersion};
+use crate::{common::BufReadPeek, errors::WireFormatError, message::ProtocolVersion};
 
 pub(crate) trait WriteWireExt: Write {
     fn write_bytes(&mut self, bytes: &[u8]) -> IoResult<()> {
@@ -44,7 +44,7 @@ pub(crate) trait WriteWireExt: Write {
 
 impl<T: Write + ?Sized> WriteWireExt for T {}
 
-pub(crate) trait ReadWireExt: GetReadBuf {
+pub(crate) trait ReadWireExt: BufReadPeek {
     fn read_bytes(&mut self, buf: &mut [u8], on_eof: &dyn Fn() -> WireFormatError) -> IoResult<()> {
         self.read_exact(buf).map_err(|e| {
             if e.kind() == IoErrorKind::UnexpectedEof {
@@ -77,7 +77,7 @@ pub(crate) trait ReadWireExt: GetReadBuf {
     fn read_cstring(&mut self, on_eof: &dyn Fn() -> WireFormatError) -> IoResult<CString> {
         let mut all_buf: Vec<u8> = Vec::new();
         loop {
-            let buf = self.read_buffer();
+            let buf = self.peek_buf();
             if let Some(pos) = buf.iter().position(|&b| b == 0) {
                 all_buf.extend_from_slice(&buf[..pos + 1]);
                 self.consume(pos + 1);
@@ -133,7 +133,7 @@ pub(crate) trait ReadWireExt: GetReadBuf {
     }
 
     fn read_is_eof(&mut self) -> IoResult<bool> {
-        let buf = self.read_buffer();
+        let buf = self.peek_buf();
         if !buf.is_empty() {
             return Ok(false);
         }
@@ -145,7 +145,7 @@ pub(crate) trait ReadWireExt: GetReadBuf {
     }
 }
 
-impl<T: GetReadBuf + ?Sized> ReadWireExt for T {}
+impl<T: BufReadPeek + ?Sized> ReadWireExt for T {}
 
 #[derive(Clone, Copy)]
 pub(crate) struct ReadSizedErrors<'a> {

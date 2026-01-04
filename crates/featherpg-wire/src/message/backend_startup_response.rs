@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::{
-    common::GetReadBuf,
+    common::BufReadPeek,
     errors::WireFormatError,
     message::{ErrorResponse, NoticeResponse},
     message_common::{ReadSizedErrors, ReadWireExt, WriteWireExt},
@@ -72,7 +72,7 @@ impl BackendStartupResponse {
 
     pub fn read_from<R>(reader: &mut R) -> IoResult<Self>
     where
-        R: GetReadBuf + ?Sized,
+        R: BufReadPeek + ?Sized,
     {
         let type_byte =
             reader.read_u8(&|| WireFormatError::BackendStartupResponseMissingTypeByte)?;
@@ -148,7 +148,7 @@ impl BackendKeyData {
 
     fn read_after_type_byte<R>(reader: &mut R, type_byte: u8) -> IoResult<Self>
     where
-        R: GetReadBuf + ?Sized,
+        R: BufReadPeek + ?Sized,
     {
         assert_eq!(type_byte, Self::TYPE_BYTE);
 
@@ -170,7 +170,7 @@ impl BackendKeyData {
 
     fn read_body<R>(reader: &mut R) -> IoResult<Self>
     where
-        R: GetReadBuf + ?Sized,
+        R: BufReadPeek + ?Sized,
     {
         let process_id =
             reader.read_u32(&|| WireFormatError::BackendKeyDataIncompleteProcessId)? as i32;
@@ -223,7 +223,7 @@ impl ParameterStatus {
 
     fn read_after_type_byte<R>(reader: &mut R, type_byte: u8) -> IoResult<Self>
     where
-        R: GetReadBuf + ?Sized,
+        R: BufReadPeek + ?Sized,
     {
         assert_eq!(type_byte, Self::TYPE_BYTE);
 
@@ -245,7 +245,7 @@ impl ParameterStatus {
 
     fn read_body<R>(reader: &mut R) -> IoResult<Self>
     where
-        R: GetReadBuf + ?Sized,
+        R: BufReadPeek + ?Sized,
     {
         let name = reader.read_cstring(&|| WireFormatError::ParameterStatusUnterminatedName)?;
         let value = reader.read_cstring(&|| WireFormatError::ParameterStatusUnterminatedValue)?;
@@ -284,7 +284,7 @@ impl ReadyForQuery {
 
     fn read_after_type_byte<R>(reader: &mut R, type_byte: u8) -> IoResult<Self>
     where
-        R: GetReadBuf + ?Sized,
+        R: BufReadPeek + ?Sized,
     {
         assert_eq!(type_byte, Self::TYPE_BYTE);
 
@@ -306,7 +306,7 @@ impl ReadyForQuery {
 
     fn read_body<R>(reader: &mut R) -> IoResult<Self>
     where
-        R: GetReadBuf + ?Sized,
+        R: BufReadPeek + ?Sized,
     {
         let status_byte = reader.read_u8(&|| WireFormatError::ReadyForQueryIncompleteStatus)?;
         let status = TransactionStatus::from_byte(status_byte)

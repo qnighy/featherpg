@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::{
-    common::GetReadBuf,
+    common::BufReadPeek,
     errors::{DiagnosticMessage, DiagnosticSeverity, WireFormatError},
     message_common::{ReadSizedErrors, ReadWireExt, WriteWireExt},
 };
@@ -50,7 +50,7 @@ impl ErrorResponse {
         type_byte: u8,
     ) -> IoResult<Self>
     where
-        R: GetReadBuf + ?Sized,
+        R: BufReadPeek + ?Sized,
     {
         assert_eq!(type_byte, Self::TYPE_BYTE);
 
@@ -91,7 +91,7 @@ impl NoticeResponse {
         type_byte: u8,
     ) -> IoResult<Self>
     where
-        R: GetReadBuf + ?Sized,
+        R: BufReadPeek + ?Sized,
     {
         assert_eq!(type_byte, Self::TYPE_BYTE);
 
@@ -223,7 +223,7 @@ where
 
 fn read_diagnostic<R>(reader: &mut R) -> IoResult<DiagnosticMessage>
 where
-    R: GetReadBuf + ?Sized,
+    R: BufReadPeek + ?Sized,
 {
     reader.read_sized(
         usize::MAX,
@@ -243,7 +243,7 @@ where
 
 fn read_diagnostic_body<R>(reader: &mut R) -> IoResult<DiagnosticMessage>
 where
-    R: GetReadBuf + ?Sized,
+    R: BufReadPeek + ?Sized,
 {
     let mut severity: Option<DiagnosticSeverity> = None;
     let mut localized_severity: Option<CString> = None;

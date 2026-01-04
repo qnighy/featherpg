@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::{
-    common::GetReadBuf,
+    common::BufReadPeek,
     errors::WireFormatError,
     message::ImplicitTerminate,
     message_common::{ReadSizedErrors, ReadWireExt, WriteWireExt},
@@ -42,7 +42,7 @@ impl MD5PasswordClientResponse {
 
     pub fn read_from<R>(reader: &mut R, limits: &MD5PasswordClientResponseLimits) -> IoResult<Self>
     where
-        R: GetReadBuf + ?Sized,
+        R: BufReadPeek + ?Sized,
     {
         let is_eof = reader.read_is_eof()?;
         if is_eof {
@@ -103,7 +103,7 @@ impl MD5PasswordMessage {
         limits: &MD5PasswordClientResponseLimits,
     ) -> IoResult<Self>
     where
-        R: GetReadBuf + ?Sized,
+        R: BufReadPeek + ?Sized,
     {
         assert_eq!(type_byte, Self::TYPE_BYTE);
 
@@ -125,7 +125,7 @@ impl MD5PasswordMessage {
 
     fn read_body<R>(reader: &mut R) -> IoResult<Self>
     where
-        R: GetReadBuf + ?Sized,
+        R: BufReadPeek + ?Sized,
     {
         let password =
             reader.read_cstring(&|| WireFormatError::MD5PasswordMessageUnterminatedCString)?;

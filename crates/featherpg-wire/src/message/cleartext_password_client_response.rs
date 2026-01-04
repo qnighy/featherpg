@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::{
-    common::GetReadBuf,
+    common::BufReadPeek,
     errors::WireFormatError,
     message::ImplicitTerminate,
     message_common::{ReadSizedErrors, ReadWireExt, WriteWireExt},
@@ -45,7 +45,7 @@ impl CleartextPasswordClientResponse {
         limits: &CleartextPasswordClientResponseLimits,
     ) -> IoResult<Self>
     where
-        R: GetReadBuf + ?Sized,
+        R: BufReadPeek + ?Sized,
     {
         let is_eof = reader.read_is_eof()?;
         if is_eof {
@@ -107,7 +107,7 @@ impl CleartextPasswordMessage {
         limits: &CleartextPasswordClientResponseLimits,
     ) -> IoResult<Self>
     where
-        R: GetReadBuf + ?Sized,
+        R: BufReadPeek + ?Sized,
     {
         assert_eq!(type_byte, Self::TYPE_BYTE);
 
@@ -129,7 +129,7 @@ impl CleartextPasswordMessage {
 
     fn read_body<R>(reader: &mut R) -> IoResult<Self>
     where
-        R: GetReadBuf + ?Sized,
+        R: BufReadPeek + ?Sized,
     {
         let password = reader
             .read_cstring(&|| WireFormatError::CleartextPasswordMessageUnterminatedCString)?;

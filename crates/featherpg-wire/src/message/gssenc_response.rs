@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::{
-    common::GetReadBuf, errors::WireFormatError, message::ErrorResponse,
+    common::BufReadPeek, errors::WireFormatError, message::ErrorResponse,
     message_common::WriteWireExt,
 };
 
@@ -48,7 +48,7 @@ impl GSSENCResponse {
 
     pub fn read_from<R>(reader: &mut R) -> IoResult<Self>
     where
-        R: GetReadBuf + ?Sized,
+        R: BufReadPeek + ?Sized,
     {
         let mut type_byte = b'\0';
         reader.read_exact(slice::from_mut(&mut type_byte))?;
@@ -88,7 +88,7 @@ impl UseGSSENC {
 
     fn read_after_type_byte<R>(_reader: &mut R, type_byte: u8) -> IoResult<Self>
     where
-        R: GetReadBuf + ?Sized,
+        R: BufReadPeek + ?Sized,
     {
         assert_eq!(type_byte, Self::TYPE_BYTE);
 
@@ -115,7 +115,7 @@ impl NoGSSENC {
 
     fn read_after_type_byte<R>(_reader: &mut R, type_byte: u8) -> IoResult<Self>
     where
-        R: GetReadBuf + ?Sized,
+        R: BufReadPeek + ?Sized,
     {
         assert_eq!(type_byte, Self::TYPE_BYTE);
 
