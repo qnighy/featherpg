@@ -4,8 +4,8 @@ use std::{
 };
 
 use crate::{
-    common::BufReadPeek,
     errors::{DiagnosticMessage, DiagnosticSeverity, WireFormatError},
+    io_util::BufReadPeek,
     message_common::{ReadSizedErrors, ReadWireExt, WriteWireExt},
 };
 

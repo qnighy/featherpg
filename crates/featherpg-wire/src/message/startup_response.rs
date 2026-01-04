@@ -4,8 +4,8 @@ use std::{
 };
 
 use crate::{
-    common::BufReadPeek,
     errors::WireFormatError,
+    io_util::BufReadPeek,
     message::{ErrorResponse, ProtocolVersion},
     message_common::{ReadSizedErrors, ReadWireExt, WriteWireExt},
 };

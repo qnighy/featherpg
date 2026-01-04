@@ -3,7 +3,7 @@ use std::{
     io::{Error as IoError, ErrorKind as IoErrorKind, Result as IoResult, Write},
 };
 
-use crate::{common::BufReadPeek, errors::WireFormatError, message::ProtocolVersion};
+use crate::{errors::WireFormatError, io_util::BufReadPeek, message::ProtocolVersion};
 
 pub(crate) trait WriteWireExt: Write {
     fn write_bytes(&mut self, bytes: &[u8]) -> IoResult<()> {

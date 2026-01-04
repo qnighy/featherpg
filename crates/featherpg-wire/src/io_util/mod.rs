@@ -8,7 +8,9 @@ use std::{
 
 use thiserror::Error;
 
-use crate::common::BufReadPeek;
+pub use crate::io_util::buf_read_peek::BufReadPeek;
+
+mod buf_read_peek;
 
 /// BufReader and BufWriter, combined into a single type.
 pub(crate) struct BufReaderWriter<S>

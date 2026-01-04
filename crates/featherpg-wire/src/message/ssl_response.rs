@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::{
-    common::BufReadPeek, errors::WireFormatError, message::ErrorResponse,
+    errors::WireFormatError, io_util::BufReadPeek, message::ErrorResponse,
     message_common::WriteWireExt,
 };
 
