@@ -94,7 +94,7 @@ impl ServerInInitialRequest {
     {
         let msg = loop {
             let msg = reporting_format_error(&mut s.stream, |stream| {
-                InitialRequest::read_from(
+                InitialRequest::read_from_lookahead(
                     stream,
                     &InitialRequestLimits {
                         max_length: MAX_STARTUP_PACKET_LENGTH,

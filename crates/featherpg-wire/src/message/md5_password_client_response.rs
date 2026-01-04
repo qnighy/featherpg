@@ -1,6 +1,6 @@
 use std::{
     ffi::CString,
-    io::{Result as IoResult, Write},
+    io::{Read, Result as IoResult, Write},
 };
 
 use crate::{
@@ -42,15 +42,11 @@ impl MD5PasswordClientResponse {
 
     pub fn read_from<R>(reader: &mut R, limits: &MD5PasswordClientResponseLimits) -> IoResult<Self>
     where
-        R: BufReadPeek + ?Sized,
+        R: Read + ?Sized,
     {
-        let is_eof = reader.read_is_eof()?;
-        if is_eof {
+        let Some(type_byte) = reader.read_u8_opt()? else {
             return Ok(ImplicitTerminate.into());
-        }
-
-        // EOF should have been caught above.
-        let type_byte = reader.read_u8(&|| unreachable!())?;
+        };
 
         match type_byte {
             MD5PasswordMessage::TYPE_BYTE => {
@@ -103,7 +99,7 @@ impl MD5PasswordMessage {
         limits: &MD5PasswordClientResponseLimits,
     ) -> IoResult<Self>
     where
-        R: BufReadPeek + ?Sized,
+        R: Read + ?Sized,
     {
         assert_eq!(type_byte, Self::TYPE_BYTE);
 

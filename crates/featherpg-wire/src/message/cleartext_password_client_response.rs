@@ -1,6 +1,6 @@
 use std::{
     ffi::CString,
-    io::{Result as IoResult, Write},
+    io::{Read, Result as IoResult, Write},
 };
 
 use crate::{
@@ -45,15 +45,11 @@ impl CleartextPasswordClientResponse {
         limits: &CleartextPasswordClientResponseLimits,
     ) -> IoResult<Self>
     where
-        R: BufReadPeek + ?Sized,
+        R: Read + ?Sized,
     {
-        let is_eof = reader.read_is_eof()?;
-        if is_eof {
+        let Some(type_byte) = reader.read_u8_opt()? else {
             return Ok(ImplicitTerminate.into());
-        }
-
-        // EOF should have been caught above.
-        let type_byte = reader.read_u8(&|| unreachable!())?;
+        };
 
         match type_byte {
             CleartextPasswordMessage::TYPE_BYTE => {
@@ -107,7 +103,7 @@ impl CleartextPasswordMessage {
         limits: &CleartextPasswordClientResponseLimits,
     ) -> IoResult<Self>
     where
-        R: BufReadPeek + ?Sized,
+        R: Read + ?Sized,
     {
         assert_eq!(type_byte, Self::TYPE_BYTE);
 

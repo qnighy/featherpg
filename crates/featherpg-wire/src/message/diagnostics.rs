@@ -1,6 +1,6 @@
 use std::{
     ffi::CString,
-    io::{Result as IoResult, Write},
+    io::{Read, Result as IoResult, Write},
 };
 
 use crate::{
@@ -50,7 +50,7 @@ impl ErrorResponse {
         type_byte: u8,
     ) -> IoResult<Self>
     where
-        R: BufReadPeek + ?Sized,
+        R: Read + ?Sized,
     {
         assert_eq!(type_byte, Self::TYPE_BYTE);
 
@@ -91,7 +91,7 @@ impl NoticeResponse {
         type_byte: u8,
     ) -> IoResult<Self>
     where
-        R: BufReadPeek + ?Sized,
+        R: Read + ?Sized,
     {
         assert_eq!(type_byte, Self::TYPE_BYTE);
 
@@ -223,7 +223,7 @@ where
 
 fn read_diagnostic<R>(reader: &mut R) -> IoResult<DiagnosticMessage>
 where
-    R: BufReadPeek + ?Sized,
+    R: Read + ?Sized,
 {
     reader.read_sized(
         usize::MAX,

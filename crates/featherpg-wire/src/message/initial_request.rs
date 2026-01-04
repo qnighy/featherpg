@@ -1,6 +1,6 @@
 use std::{
     ffi::CString,
-    io::{Error as IoError, ErrorKind as IoErrorKind, Result as IoResult, Write},
+    io::{Error as IoError, ErrorKind as IoErrorKind, Read, Result as IoResult, Write},
 };
 
 use crate::{
@@ -90,7 +90,7 @@ impl InitialRequest {
         }
     }
 
-    pub fn read_from<R>(
+    pub fn read_from_lookahead<R>(
         reader: &mut R,
         limits: &InitialRequestLimits,
         state: InitialRequestState,
@@ -98,22 +98,26 @@ impl InitialRequest {
     where
         R: BufReadPeek + ?Sized,
     {
-        let is_eof = reader.read_is_eof()?;
-        if is_eof {
-            return Ok(ImplicitTerminate.into());
-        }
-
         if state == InitialRequestState::ConnectionStart {
-            // The buffer should have been filled due to read_is_eof above.
-            // And by "filled" we assume at least one byte is available.
-            let buf = reader.peek_buf();
+            let buf = if reader.peek_buf().is_empty() {
+                reader.fill_buf()?
+            } else {
+                reader.peek_buf()
+            };
             if buf.first() == Some(&DirectTLS::TLS_HANDSHAKE_SIGNATURE) {
                 // Detected DirectTLS handshake signature.
                 // Do not consume any bytes from the reader and return DirectTLS.
                 return Ok(InitialRequest::DirectTLS(DirectTLS));
             }
         }
-        reader.read_sized(
+        Self::read_from(reader, limits)
+    }
+
+    pub fn read_from<R>(reader: &mut R, limits: &InitialRequestLimits) -> IoResult<Self>
+    where
+        R: Read + ?Sized,
+    {
+        let result = reader.read_sized_opt(
             limits.max_length,
             ReadSizedErrors {
                 on_incomplete_length: &|| WireFormatError::InitialRequestIncompleteLength,
@@ -126,7 +130,12 @@ impl InitialRequest {
                 on_incomplete_body: &|| WireFormatError::InitialRequestIncompleteBody,
             },
             |reader| Self::read_body_from(reader),
-        )
+        )?;
+        if let Some(msg) = result {
+            Ok(msg)
+        } else {
+            Ok(ImplicitTerminate.into())
+        }
     }
 
     fn read_body_from<R>(reader: &mut R) -> IoResult<Self>
@@ -581,7 +590,7 @@ mod tests {
         state: InitialRequestState,
     ) -> IoResult<InitialRequest> {
         let mut reader = data;
-        let msg = InitialRequest::read_from(&mut reader, limits, state)?;
+        let msg = InitialRequest::read_from_lookahead(&mut reader, limits, state)?;
         assert_eq!(reader, b"", "inexact read");
         Ok(msg)
     }
@@ -1261,7 +1270,7 @@ mod tests {
     #[test]
     fn test_direct_tls_parsing_packet() {
         let mut reader: &[u8] = b"\x16__followed_by_tls_handshake_data__";
-        let msg = InitialRequest::read_from(
+        let msg = InitialRequest::read_from_lookahead(
             &mut reader,
             &InitialRequestLimits { max_length: 10000 },
             InitialRequestState::ConnectionStart,

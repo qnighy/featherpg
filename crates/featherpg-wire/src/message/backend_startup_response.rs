@@ -1,6 +1,6 @@
 use std::{
     ffi::CString,
-    io::{Error as IoError, ErrorKind as IoErrorKind, Result as IoResult, Write},
+    io::{Error as IoError, ErrorKind as IoErrorKind, Read, Result as IoResult, Write},
 };
 
 use crate::{
@@ -72,7 +72,7 @@ impl BackendStartupResponse {
 
     pub fn read_from<R>(reader: &mut R) -> IoResult<Self>
     where
-        R: BufReadPeek + ?Sized,
+        R: Read + ?Sized,
     {
         let type_byte =
             reader.read_u8(&|| WireFormatError::BackendStartupResponseMissingTypeByte)?;
@@ -148,7 +148,7 @@ impl BackendKeyData {
 
     fn read_after_type_byte<R>(reader: &mut R, type_byte: u8) -> IoResult<Self>
     where
-        R: BufReadPeek + ?Sized,
+        R: Read + ?Sized,
     {
         assert_eq!(type_byte, Self::TYPE_BYTE);
 
@@ -223,7 +223,7 @@ impl ParameterStatus {
 
     fn read_after_type_byte<R>(reader: &mut R, type_byte: u8) -> IoResult<Self>
     where
-        R: BufReadPeek + ?Sized,
+        R: Read + ?Sized,
     {
         assert_eq!(type_byte, Self::TYPE_BYTE);
 
@@ -284,7 +284,7 @@ impl ReadyForQuery {
 
     fn read_after_type_byte<R>(reader: &mut R, type_byte: u8) -> IoResult<Self>
     where
-        R: BufReadPeek + ?Sized,
+        R: Read + ?Sized,
     {
         assert_eq!(type_byte, Self::TYPE_BYTE);
 

@@ -1,6 +1,6 @@
 use std::{
     ffi::{CStr, CString},
-    io::{Error as IoError, ErrorKind as IoErrorKind, Result as IoResult, Write},
+    io::{Error as IoError, ErrorKind as IoErrorKind, Read, Result as IoResult, Write},
 };
 
 use crate::{errors::WireFormatError, io_util::BufReadPeek, message::ProtocolVersion};
@@ -44,7 +44,7 @@ pub(crate) trait WriteWireExt: Write {
 
 impl<T: Write + ?Sized> WriteWireExt for T {}
 
-pub(crate) trait ReadWireExt: BufReadPeek {
+pub(crate) trait ReadWireExt: Read {
     fn read_bytes(&mut self, buf: &mut [u8], on_eof: &dyn Fn() -> WireFormatError) -> IoResult<()> {
         self.read_exact(buf).map_err(|e| {
             if e.kind() == IoErrorKind::UnexpectedEof {
@@ -59,6 +59,15 @@ pub(crate) trait ReadWireExt: BufReadPeek {
         self.read_bytes(&mut buf, on_eof)?;
         Ok(buf[0])
     }
+    fn read_u8_opt(&mut self) -> IoResult<Option<u8>> {
+        let mut buf = [0u8; 1];
+        let num_read = self.read(&mut buf)?;
+        if num_read == 0 {
+            Ok(None)
+        } else {
+            Ok(Some(buf[0]))
+        }
+    }
     fn read_u16(&mut self, on_eof: &dyn Fn() -> WireFormatError) -> IoResult<u16> {
         let mut buf = [0u8; 2];
         self.read_bytes(&mut buf, on_eof)?;
@@ -69,12 +78,24 @@ pub(crate) trait ReadWireExt: BufReadPeek {
         self.read_bytes(&mut buf, on_eof)?;
         Ok(u32::from_be_bytes(buf))
     }
+    fn read_u32_opt(&mut self, on_eof: &dyn Fn() -> WireFormatError) -> IoResult<Option<u32>> {
+        let mut buf = [0u8; 4];
+        let num_read = self.read(&mut buf[..1])?;
+        if num_read == 0 {
+            return Ok(None);
+        }
+        self.read_bytes(&mut buf[1..], on_eof)?;
+        Ok(Some(u32::from_be_bytes(buf)))
+    }
     fn read_version(&mut self, on_eof: &dyn Fn() -> WireFormatError) -> IoResult<ProtocolVersion> {
         let major = self.read_u16(on_eof)?;
         let minor = self.read_u16(on_eof)?;
         Ok(ProtocolVersion::new(major, minor))
     }
-    fn read_cstring(&mut self, on_eof: &dyn Fn() -> WireFormatError) -> IoResult<CString> {
+    fn read_cstring(&mut self, on_eof: &dyn Fn() -> WireFormatError) -> IoResult<CString>
+    where
+        Self: BufReadPeek,
+    {
         let mut all_buf: Vec<u8> = Vec::new();
         loop {
             let buf = self.peek_buf();
@@ -100,6 +121,34 @@ pub(crate) trait ReadWireExt: BufReadPeek {
         F: FnOnce(&mut &[u8]) -> IoResult<T>,
     {
         let length_plus_4 = self.read_u32(on_eof.on_incomplete_length)? as usize;
+        self.read_sized_after_size(length_plus_4, limit, on_eof, f)
+    }
+    fn read_sized_opt<T, F>(
+        &mut self,
+        limit: usize,
+        on_eof: ReadSizedErrors<'_>,
+        f: F,
+    ) -> IoResult<Option<T>>
+    where
+        F: FnOnce(&mut &[u8]) -> IoResult<T>,
+    {
+        let Some(length_plus_4) = self.read_u32_opt(on_eof.on_incomplete_length)? else {
+            return Ok(None);
+        };
+        let length_plus_4 = length_plus_4 as usize;
+        let result = self.read_sized_after_size(length_plus_4, limit, on_eof, f)?;
+        Ok(Some(result))
+    }
+    fn read_sized_after_size<T, F>(
+        &mut self,
+        length_plus_4: usize,
+        limit: usize,
+        on_eof: ReadSizedErrors<'_>,
+        f: F,
+    ) -> IoResult<T>
+    where
+        F: FnOnce(&mut &[u8]) -> IoResult<T>,
+    {
         if length_plus_4 < 4 {
             return Err((on_eof.on_negative_length)(length_plus_4 as isize - 4).into());
         }
@@ -125,14 +174,20 @@ pub(crate) trait ReadWireExt: BufReadPeek {
         Ok(buf)
     }
 
-    fn read_eof(&mut self, on_extra_bytes: &dyn Fn() -> WireFormatError) -> IoResult<()> {
+    fn read_eof(&mut self, on_extra_bytes: &dyn Fn() -> WireFormatError) -> IoResult<()>
+    where
+        Self: BufReadPeek,
+    {
         if !self.read_is_eof()? {
             return Err(on_extra_bytes().into());
         }
         Ok(())
     }
 
-    fn read_is_eof(&mut self) -> IoResult<bool> {
+    fn read_is_eof(&mut self) -> IoResult<bool>
+    where
+        Self: BufReadPeek,
+    {
         let buf = self.peek_buf();
         if !buf.is_empty() {
             return Ok(false);
@@ -145,7 +200,7 @@ pub(crate) trait ReadWireExt: BufReadPeek {
     }
 }
 
-impl<T: BufReadPeek + ?Sized> ReadWireExt for T {}
+impl<T: Read + ?Sized> ReadWireExt for T {}
 
 #[derive(Clone, Copy)]
 pub(crate) struct ReadSizedErrors<'a> {

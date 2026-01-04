@@ -1,6 +1,6 @@
 use std::{
     ffi::CString,
-    io::{Result as IoResult, Write},
+    io::{Read, Result as IoResult, Write},
 };
 
 use crate::{
@@ -140,7 +140,7 @@ impl StartupResponse {
 
     pub fn read_from<R>(reader: &mut R) -> IoResult<Self>
     where
-        R: BufReadPeek + ?Sized,
+        R: Read + ?Sized,
     {
         let type_byte = reader.read_u8(&|| WireFormatError::StartupResponseMissingTypeByte)?;
         match type_byte {
@@ -193,7 +193,7 @@ impl NegotiateProtocolVersion {
 
     fn read_after_type_byte<R>(reader: &mut R, type_byte: u8) -> IoResult<Self>
     where
-        R: BufReadPeek + ?Sized,
+        R: Read + ?Sized,
     {
         assert_eq!(type_byte, Self::TYPE_BYTE);
 
@@ -242,7 +242,7 @@ fn read_authentication_after_type_byte<R>(
     type_byte: u8,
 ) -> IoResult<StartupResponse>
 where
-    R: BufReadPeek + ?Sized,
+    R: Read + ?Sized,
 {
     assert_eq!(type_byte, AUTH_TYPE_BYTE);
 
