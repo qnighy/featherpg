@@ -183,6 +183,56 @@ pub(crate) enum WireFormatError {
     #[error("extra bytes found in MD5PasswordMessage")]
     MD5PasswordMessageExtraBytes,
 
+    #[error("server connection closed before BackendStartupResponse")]
+    BackendStartupResponseMissingTypeByte,
+    #[error("unknown type byte for BackendStartupResponse: {} (expected K, S, Z, E, or N)", describe_byte(*type_byte))]
+    BackendStartupResponseUnknownTypeByte { type_byte: u8 },
+
+    #[error("unexpected EOF while reading BackendKeyData length")]
+    BackendKeyDataIncompleteLength,
+    #[error("found negative length {length} in BackendKeyData")]
+    BackendKeyDataNegativeLength { length: isize },
+    #[error("BackendKeyData too large (found {length}, limit {max_length})")]
+    BackendKeyDataTooLarge { length: usize, max_length: usize },
+    #[error("unexpected EOF while reading BackendKeyData body")]
+    BackendKeyDataIncompleteBody,
+    #[error("packet too short for BackendKeyData process_id")]
+    BackendKeyDataIncompleteProcessId,
+    #[error("secret key must not be empty in BackendKeyData")]
+    BackendKeyDataEmptySecretKey,
+    #[error("secret key too long in BackendKeyData (found {length}, limit {max_length})")]
+    BackendKeyDataSecretKeyTooLong { length: usize, max_length: usize },
+
+    #[error("unexpected EOF while reading ParameterStatus length")]
+    ParameterStatusIncompleteLength,
+    #[error("found negative length {length} in ParameterStatus")]
+    ParameterStatusNegativeLength { length: isize },
+    #[error("ParameterStatus too large (found {length}, limit {max_length})")]
+    ParameterStatusTooLarge { length: usize, max_length: usize },
+    #[error("unexpected EOF while reading ParameterStatus body")]
+    ParameterStatusIncompleteBody,
+    #[error("unterminated parameter name in ParameterStatus")]
+    ParameterStatusUnterminatedName,
+    #[error("unterminated parameter value in ParameterStatus")]
+    ParameterStatusUnterminatedValue,
+    #[error("extra bytes found in ParameterStatus")]
+    ParameterStatusExtraBytes,
+
+    #[error("unexpected EOF while reading ReadyForQuery length")]
+    ReadyForQueryIncompleteLength,
+    #[error("found negative length {length} in ReadyForQuery")]
+    ReadyForQueryNegativeLength { length: isize },
+    #[error("ReadyForQuery too large (found {length}, limit {max_length})")]
+    ReadyForQueryTooLarge { length: usize, max_length: usize },
+    #[error("unexpected EOF while reading ReadyForQuery body")]
+    ReadyForQueryIncompleteBody,
+    #[error("packet too short for ReadyForQuery status")]
+    ReadyForQueryIncompleteStatus,
+    #[error("invalid transaction status in ReadyForQuery: {} (expected I, T, or E)", describe_byte(*status_byte))]
+    ReadyForQueryInvalidStatus { status_byte: u8 },
+    #[error("extra bytes found in ReadyForQuery")]
+    ReadyForQueryExtraBytes,
+
     #[error("unexpected EOF while reading ErrorResponse/NoticeResponse length")]
     ErrorOrNoticeResponseIncompleteLength,
     #[error("found negative length {length} in ErrorResponse/NoticeResponse")]

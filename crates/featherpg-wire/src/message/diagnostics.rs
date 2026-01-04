@@ -38,14 +38,17 @@ impl ErrorResponse {
         Ok(())
     }
 
-    pub fn write_body_to<W>(&self, writer: &mut W) -> IoResult<()>
+    fn write_body_to<W>(&self, writer: &mut W) -> IoResult<()>
     where
         W: Write + ?Sized,
     {
         write_diagnostic_to(&self.error, writer)
     }
 
-    pub fn read_after_type_byte<R>(reader: &mut R, type_byte: u8) -> IoResult<Self>
+    pub(in crate::message) fn read_after_type_byte<R>(
+        reader: &mut R,
+        type_byte: u8,
+    ) -> IoResult<Self>
     where
         R: GetReadBuf + ?Sized,
     {
@@ -76,17 +79,22 @@ impl NoticeResponse {
         Ok(())
     }
 
-    pub fn write_body_to<W>(&self, writer: &mut W) -> IoResult<()>
+    fn write_body_to<W>(&self, writer: &mut W) -> IoResult<()>
     where
         W: Write + ?Sized,
     {
         write_diagnostic_to(&self.notice, writer)
     }
 
-    pub fn read_after_type_byte<R>(reader: &mut R) -> IoResult<Self>
+    pub(in crate::message) fn read_after_type_byte<R>(
+        reader: &mut R,
+        type_byte: u8,
+    ) -> IoResult<Self>
     where
         R: GetReadBuf + ?Sized,
     {
+        assert_eq!(type_byte, Self::TYPE_BYTE);
+
         let notice = read_diagnostic(reader)?;
         Ok(NoticeResponse { notice })
     }
