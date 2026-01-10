@@ -1,9 +1,9 @@
 use std::{
     ffi::{CStr, CString},
-    io::{Error as IoError, ErrorKind as IoErrorKind, Read, Result as IoResult, Write},
+    io::{BufRead, Error as IoError, ErrorKind as IoErrorKind, Read, Result as IoResult, Write},
 };
 
-use crate::{errors::WireFormatError, io_util::BufReadPeek, message::ProtocolVersion};
+use crate::{errors::WireFormatError, message::ProtocolVersion};
 
 pub(crate) trait WriteWireExt: Write {
     fn write_bytes(&mut self, bytes: &[u8]) -> IoResult<()> {
@@ -94,11 +94,15 @@ pub(crate) trait ReadWireExt: Read {
     }
     fn read_cstring(&mut self, on_eof: &dyn Fn() -> WireFormatError) -> IoResult<CString>
     where
-        Self: BufReadPeek,
+        Self: BufRead,
     {
         let mut all_buf: Vec<u8> = Vec::new();
         loop {
-            let buf = self.peek_buf();
+            let buf = self.fill_buf()?;
+            if buf.is_empty() {
+                return Err(on_eof().into());
+            }
+
             if let Some(pos) = buf.iter().position(|&b| b == 0) {
                 all_buf.extend_from_slice(&buf[..pos + 1]);
                 self.consume(pos + 1);
@@ -107,11 +111,6 @@ pub(crate) trait ReadWireExt: Read {
                 all_buf.extend_from_slice(buf);
                 let len = buf.len();
                 self.consume(len);
-
-                let new_len = self.fill_buf()?.len();
-                if new_len == 0 {
-                    return Err(on_eof().into());
-                }
             }
         }
         Ok(CString::from_vec_with_nul(all_buf).unwrap())
@@ -176,7 +175,7 @@ pub(crate) trait ReadWireExt: Read {
 
     fn read_eof(&mut self, on_extra_bytes: &dyn Fn() -> WireFormatError) -> IoResult<()>
     where
-        Self: BufReadPeek,
+        Self: BufRead,
     {
         if !self.read_is_eof()? {
             return Err(on_extra_bytes().into());
@@ -186,12 +185,8 @@ pub(crate) trait ReadWireExt: Read {
 
     fn read_is_eof(&mut self) -> IoResult<bool>
     where
-        Self: BufReadPeek,
+        Self: BufRead,
     {
-        let buf = self.peek_buf();
-        if !buf.is_empty() {
-            return Ok(false);
-        }
         let buf = self.fill_buf()?;
         if !buf.is_empty() {
             return Ok(false);

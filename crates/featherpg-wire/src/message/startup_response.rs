@@ -1,11 +1,10 @@
 use std::{
     ffi::CString,
-    io::{Read, Result as IoResult, Write},
+    io::{BufRead, Read, Result as IoResult, Write},
 };
 
 use crate::{
     errors::WireFormatError,
-    io_util::BufReadPeek,
     message::{ErrorResponse, ProtocolVersion},
     message_common::{ReadSizedErrors, ReadWireExt, WriteWireExt},
 };
@@ -215,7 +214,7 @@ impl NegotiateProtocolVersion {
 
     fn read_body<R>(reader: &mut R) -> IoResult<Self>
     where
-        R: BufReadPeek + ?Sized,
+        R: BufRead + ?Sized,
     {
         let version =
             reader.read_version(&|| WireFormatError::NegotiateProtocolVersionIncompleteVersion)?;
@@ -262,7 +261,7 @@ where
 
 fn read_authentication_body<R>(reader: &mut R, type_byte: u8) -> IoResult<StartupResponse>
 where
-    R: BufReadPeek + ?Sized,
+    R: BufRead + ?Sized,
 {
     let auth_type = reader.read_u32(&|| WireFormatError::AuthenticationIncompleteType)?;
     match auth_type {
@@ -330,7 +329,7 @@ impl AuthenticationOk {
 
     fn read_after_auth_type<R>(reader: &mut R, type_byte: u8, auth_type: u32) -> IoResult<Self>
     where
-        R: BufReadPeek + ?Sized,
+        R: BufRead + ?Sized,
     {
         assert_eq!(type_byte, Self::TYPE_BYTE);
         assert_eq!(auth_type, Self::AUTH_TYPE);
@@ -367,7 +366,7 @@ impl AuthenticationCleartextPassword {
 
     fn read_after_auth_type<R>(reader: &mut R, type_byte: u8, auth_type: u32) -> IoResult<Self>
     where
-        R: BufReadPeek + ?Sized,
+        R: BufRead + ?Sized,
     {
         assert_eq!(type_byte, Self::TYPE_BYTE);
         assert_eq!(auth_type, Self::AUTH_TYPE);
@@ -407,7 +406,7 @@ impl AuthenticationMD5Password {
 
     fn read_after_auth_type<R>(reader: &mut R, type_byte: u8, auth_type: u32) -> IoResult<Self>
     where
-        R: BufReadPeek + ?Sized,
+        R: BufRead + ?Sized,
     {
         assert_eq!(type_byte, Self::TYPE_BYTE);
         assert_eq!(auth_type, Self::AUTH_TYPE);
@@ -448,7 +447,7 @@ impl AuthenticationGSS {
 
     fn read_after_auth_type<R>(reader: &mut R, type_byte: u8, auth_type: u32) -> IoResult<Self>
     where
-        R: BufReadPeek + ?Sized,
+        R: BufRead + ?Sized,
     {
         assert_eq!(type_byte, Self::TYPE_BYTE);
         assert_eq!(auth_type, Self::AUTH_TYPE);
@@ -488,7 +487,7 @@ impl AuthenticationGSSContinue {
 
     fn read_after_auth_type<R>(reader: &mut R, type_byte: u8, auth_type: u32) -> IoResult<Self>
     where
-        R: BufReadPeek + ?Sized,
+        R: BufRead + ?Sized,
     {
         assert_eq!(type_byte, Self::TYPE_BYTE);
         assert_eq!(auth_type, Self::AUTH_TYPE);
@@ -525,7 +524,7 @@ impl AuthenticationSSPI {
 
     fn read_after_auth_type<R>(reader: &mut R, type_byte: u8, auth_type: u32) -> IoResult<Self>
     where
-        R: BufReadPeek + ?Sized,
+        R: BufRead + ?Sized,
     {
         assert_eq!(type_byte, Self::TYPE_BYTE);
         assert_eq!(auth_type, Self::AUTH_TYPE);
@@ -569,7 +568,7 @@ impl AuthenticationSASL {
 
     fn read_after_auth_type<R>(reader: &mut R, type_byte: u8, auth_type: u32) -> IoResult<Self>
     where
-        R: BufReadPeek + ?Sized,
+        R: BufRead + ?Sized,
     {
         assert_eq!(type_byte, Self::TYPE_BYTE);
         assert_eq!(auth_type, Self::AUTH_TYPE);
@@ -619,7 +618,7 @@ impl AuthenticationSASLContinue {
 
     fn read_after_auth_type<R>(reader: &mut R, type_byte: u8, auth_type: u32) -> IoResult<Self>
     where
-        R: BufReadPeek + ?Sized,
+        R: BufRead + ?Sized,
     {
         assert_eq!(type_byte, Self::TYPE_BYTE);
         assert_eq!(auth_type, Self::AUTH_TYPE);
@@ -660,7 +659,7 @@ impl AuthenticationSASLFinal {
 
     fn read_after_auth_type<R>(reader: &mut R, type_byte: u8, auth_type: u32) -> IoResult<Self>
     where
-        R: BufReadPeek + ?Sized,
+        R: BufRead + ?Sized,
     {
         assert_eq!(type_byte, Self::TYPE_BYTE);
         assert_eq!(auth_type, Self::AUTH_TYPE);

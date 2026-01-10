@@ -1,11 +1,10 @@
 use std::{
     ffi::CString,
-    io::{Read, Result as IoResult, Write},
+    io::{BufRead, Read, Result as IoResult, Write},
 };
 
 use crate::{
     errors::{DiagnosticMessage, DiagnosticSeverity, WireFormatError},
-    io_util::BufReadPeek,
     message_common::{ReadSizedErrors, ReadWireExt, WriteWireExt},
 };
 
@@ -243,7 +242,7 @@ where
 
 fn read_diagnostic_body<R>(reader: &mut R) -> IoResult<DiagnosticMessage>
 where
-    R: BufReadPeek + ?Sized,
+    R: BufRead + ?Sized,
 {
     let mut severity: Option<DiagnosticSeverity> = None;
     let mut localized_severity: Option<CString> = None;

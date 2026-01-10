@@ -1,11 +1,10 @@
 use std::{
     ffi::CString,
-    io::{Error as IoError, ErrorKind as IoErrorKind, Read, Result as IoResult, Write},
+    io::{BufRead, Error as IoError, ErrorKind as IoErrorKind, Read, Result as IoResult, Write},
 };
 
 use crate::{
     errors::WireFormatError,
-    io_util::BufReadPeek,
     message::{ErrorResponse, NoticeResponse},
     message_common::{ReadSizedErrors, ReadWireExt, WriteWireExt},
 };
@@ -170,7 +169,7 @@ impl BackendKeyData {
 
     fn read_body<R>(reader: &mut R) -> IoResult<Self>
     where
-        R: BufReadPeek + ?Sized,
+        R: BufRead + ?Sized,
     {
         let process_id =
             reader.read_u32(&|| WireFormatError::BackendKeyDataIncompleteProcessId)? as i32;
@@ -245,7 +244,7 @@ impl ParameterStatus {
 
     fn read_body<R>(reader: &mut R) -> IoResult<Self>
     where
-        R: BufReadPeek + ?Sized,
+        R: BufRead + ?Sized,
     {
         let name = reader.read_cstring(&|| WireFormatError::ParameterStatusUnterminatedName)?;
         let value = reader.read_cstring(&|| WireFormatError::ParameterStatusUnterminatedValue)?;
@@ -306,7 +305,7 @@ impl ReadyForQuery {
 
     fn read_body<R>(reader: &mut R) -> IoResult<Self>
     where
-        R: BufReadPeek + ?Sized,
+        R: BufRead + ?Sized,
     {
         let status_byte = reader.read_u8(&|| WireFormatError::ReadyForQueryIncompleteStatus)?;
         let status = TransactionStatus::from_byte(status_byte)

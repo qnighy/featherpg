@@ -1,11 +1,10 @@
 use std::{
     ffi::CString,
-    io::{Read, Result as IoResult, Write},
+    io::{BufRead, Read, Result as IoResult, Write},
 };
 
 use crate::{
     errors::WireFormatError,
-    io_util::BufReadPeek,
     message::ImplicitTerminate,
     message_common::{ReadSizedErrors, ReadWireExt, WriteWireExt},
 };
@@ -121,7 +120,7 @@ impl MD5PasswordMessage {
 
     fn read_body<R>(reader: &mut R) -> IoResult<Self>
     where
-        R: BufReadPeek + ?Sized,
+        R: BufRead + ?Sized,
     {
         let password =
             reader.read_cstring(&|| WireFormatError::MD5PasswordMessageUnterminatedCString)?;

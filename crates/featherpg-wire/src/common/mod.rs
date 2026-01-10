@@ -9,8 +9,6 @@ use std::{
 #[cfg(any(feature = "futures", feature = "tokio"))]
 use pin_project::pin_project;
 
-use crate::io_util::BufReadPeek;
-
 #[cfg(feature = "futures")]
 mod futures;
 #[cfg(feature = "tokio")]
@@ -95,12 +93,6 @@ impl BufRead for BytesReader {
     }
 }
 
-impl BufReadPeek for BytesReader {
-    fn peek_buf(&self) -> &[u8] {
-        &self
-    }
-}
-
 impl BytesReader {
     fn do_borrowed<F, R>(&mut self, f: F) -> R
     where
@@ -176,16 +168,6 @@ impl<S: BufRead> BufRead for WithExcess<S> {
             self.excess_read.consume(amt);
         } else {
             self.stream.consume(amt);
-        }
-    }
-}
-
-impl<S: BufReadPeek> BufReadPeek for WithExcess<S> {
-    fn peek_buf(&self) -> &[u8] {
-        if !self.excess_read.is_empty() {
-            self.excess_read.peek_buf()
-        } else {
-            self.stream.peek_buf()
         }
     }
 }
@@ -281,12 +263,6 @@ impl BufRead for VoidIO {
     }
 
     fn read_line(&mut self, _buf: &mut String) -> IoResult<usize> {
-        match self.inner {}
-    }
-}
-
-impl BufReadPeek for VoidIO {
-    fn peek_buf(&self) -> &[u8] {
         match self.inner {}
     }
 }

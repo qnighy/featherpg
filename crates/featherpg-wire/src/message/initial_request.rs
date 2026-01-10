@@ -1,11 +1,10 @@
 use std::{
     ffi::CString,
-    io::{Error as IoError, ErrorKind as IoErrorKind, Read, Result as IoResult, Write},
+    io::{BufRead, Error as IoError, ErrorKind as IoErrorKind, Read, Result as IoResult, Write},
 };
 
 use crate::{
     errors::WireFormatError,
-    io_util::BufReadPeek,
     message::{ImplicitTerminate, ProtocolVersion},
     message_common::{ReadSizedErrors, ReadWireExt, WriteWireExt, assert_param},
 };
@@ -96,14 +95,10 @@ impl InitialRequest {
         state: InitialRequestState,
     ) -> IoResult<Self>
     where
-        R: BufReadPeek + ?Sized,
+        R: BufRead + ?Sized,
     {
         if state == InitialRequestState::ConnectionStart {
-            let buf = if reader.peek_buf().is_empty() {
-                reader.fill_buf()?
-            } else {
-                reader.peek_buf()
-            };
+            let buf = reader.fill_buf()?;
             if buf.first() == Some(&DirectTLS::TLS_HANDSHAKE_SIGNATURE) {
                 // Detected DirectTLS handshake signature.
                 // Do not consume any bytes from the reader and return DirectTLS.
@@ -140,7 +135,7 @@ impl InitialRequest {
 
     fn read_body_from<R>(reader: &mut R) -> IoResult<Self>
     where
-        R: BufReadPeek + ?Sized,
+        R: BufRead + ?Sized,
     {
         let version = reader.read_version(&|| WireFormatError::InitialRequestIncompleteVersion)?;
 
@@ -290,7 +285,7 @@ impl StartupMessage {
 
     fn read_after_version<R>(reader: &mut R, version: ProtocolVersion) -> IoResult<Self>
     where
-        R: BufReadPeek + ?Sized,
+        R: BufRead + ?Sized,
     {
         // See: backend_startup.c, ProcessStartupPacket
 
@@ -393,7 +388,7 @@ impl SSLRequest {
 
     fn read_after_version<R>(reader: &mut R, version: ProtocolVersion) -> IoResult<Self>
     where
-        R: BufReadPeek + ?Sized,
+        R: BufRead + ?Sized,
     {
         // See: backend_startup.c, ProcessStartupPacket
 
@@ -438,7 +433,7 @@ impl GSSENCRequest {
 
     fn read_after_version<R>(reader: &mut R, version: ProtocolVersion) -> IoResult<Self>
     where
-        R: BufReadPeek + ?Sized,
+        R: BufRead + ?Sized,
     {
         // See: backend_startup.c, ProcessStartupPacket
 
@@ -497,7 +492,7 @@ impl CancelRequest {
 
     fn read_after_version<R>(reader: &mut R, version: ProtocolVersion) -> IoResult<Self>
     where
-        R: BufReadPeek + ?Sized,
+        R: BufRead + ?Sized,
     {
         // See: backend_startup.c, ProcessCancelRequestPacket
 

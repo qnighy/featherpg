@@ -8,10 +8,6 @@ use std::{
 
 use thiserror::Error;
 
-pub use crate::io_util::buf_read_peek::BufReadPeek;
-
-mod buf_read_peek;
-
 /// BufReader and BufWriter, combined into a single type.
 pub(crate) struct BufReaderWriter<S>
 where
@@ -175,15 +171,6 @@ where
 
     fn read_line(&mut self, buf: &mut String) -> IoResult<usize> {
         self.inner.get_mut().read_line(buf)
-    }
-}
-
-impl<S> BufReadPeek for BufReaderWriter<S>
-where
-    S: Read + Write + ?Sized,
-{
-    fn peek_buf(&self) -> &[u8] {
-        self.inner.get_ref().peek_buf()
     }
 }
 
@@ -382,15 +369,6 @@ where
     }
 }
 
-impl<S> BufReadPeek for BufReaderWrapper<S>
-where
-    S: Read + ?Sized,
-{
-    fn peek_buf(&self) -> &[u8] {
-        self.inner.buffer()
-    }
-}
-
 impl<S> Write for BufReaderWrapper<S>
 where
     S: Write + ?Sized,
@@ -578,21 +556,6 @@ where
             Encryptable::Cleartext(s) => s.read_line(buf),
             Encryptable::UseSSL(s) => s.read_line(buf),
             Encryptable::UseGSSENC(s) => s.read_line(buf),
-        }
-    }
-}
-
-impl<S, TLSConn, GSSENCConn> BufReadPeek for Encryptable<S, TLSConn, GSSENCConn>
-where
-    S: BufReadPeek,
-    TLSConn: BufReadPeek,
-    GSSENCConn: BufReadPeek,
-{
-    fn peek_buf(&self) -> &[u8] {
-        match self {
-            Encryptable::Cleartext(s) => s.peek_buf(),
-            Encryptable::UseSSL(s) => s.peek_buf(),
-            Encryptable::UseGSSENC(s) => s.peek_buf(),
         }
     }
 }
