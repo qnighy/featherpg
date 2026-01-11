@@ -58,14 +58,22 @@ pub enum DiagnosticSeverity {
 
 #[derive(Debug, Error)]
 pub(crate) enum WireFormatError {
-    #[error("unexpected EOF while reading InitialRequest length")]
-    InitialRequestIncompleteLength,
-    #[error("found negative length {length} in InitialRequest")]
-    InitialRequestNegativeLength { length: isize },
-    #[error("InitialRequest too large (found {length}, limit {max_length})")]
-    InitialRequestTooLarge { length: usize, max_length: usize },
-    #[error("unexpected EOF while reading InitialRequest body")]
-    InitialRequestIncompleteBody,
+    #[error("unexpected EOF while reading {packet_type} length")]
+    IncompletePacketLength { packet_type: ErrorPacketType },
+    #[error("found negative length {length} in {packet_type}")]
+    NegativePacketLength {
+        packet_type: ErrorPacketType,
+        length: isize,
+    },
+    #[error("{packet_type} too large (found {length}, limit {max_length})")]
+    PacketTooLarge {
+        packet_type: ErrorPacketType,
+        length: usize,
+        max_length: usize,
+    },
+    #[error("unexpected EOF while reading {packet_type} body")]
+    IncompletePacketBody { packet_type: ErrorPacketType },
+
     #[error("packet too short for InitialRequest version")]
     InitialRequestIncompleteVersion,
 
@@ -108,27 +116,11 @@ pub(crate) enum WireFormatError {
     #[error("unknown type byte for StartupResponse: {} (expected R or v)", describe_byte(*type_byte))]
     StartupResponseUnknownTypeByte { type_byte: u8 },
 
-    #[error("unexpected EOF while reading NegotiateProtocolVersion length")]
-    NegotiateProtocolVersionIncompleteLength,
-    #[error("found negative length {length} in NegotiateProtocolVersion")]
-    NegotiateProtocolVersionNegativeLength { length: isize },
-    #[error("NegotiateProtocolVersion too large (found {length}, limit {max_length})")]
-    NegotiateProtocolVersionTooLarge { length: usize, max_length: usize },
-    #[error("unexpected EOF while reading NegotiateProtocolVersion body")]
-    NegotiateProtocolVersionIncompleteBody,
     #[error("packet too short for NegotiateProtocolVersion version")]
     NegotiateProtocolVersionIncompleteVersion,
     #[error("unterminated option name in NegotiateProtocolVersion")]
     NegotiateProtocolVersionIncompleteOptionName,
 
-    #[error("unexpected EOF while reading Authentication length")]
-    AuthenticationIncompleteLength,
-    #[error("found negative length {length} in Authentication")]
-    AuthenticationNegativeLength { length: isize },
-    #[error("Authentication too large (found {length}, limit {max_length})")]
-    AuthenticationTooLarge { length: usize, max_length: usize },
-    #[error("unexpected EOF while reading Authentication body")]
-    AuthenticationIncompleteBody,
     #[error("packet too short for Authentication type")]
     AuthenticationIncompleteType,
     #[error("unknown authentication type: {auth_type} (expected 0, 3, 5, 7, 8, 9, 10, 11, or 12)")]
@@ -154,14 +146,6 @@ pub(crate) enum WireFormatError {
     #[error("unknown type byte for CleartextPasswordClientResponse: {} (expected R or v)", describe_byte(*type_byte))]
     CleartextPasswordClientResponseUnknownTypeByte { type_byte: u8 },
 
-    #[error("unexpected EOF while reading CleartextPasswordMessage length")]
-    CleartextPasswordMessageIncompleteLength,
-    #[error("found negative length {length} in CleartextPasswordMessage")]
-    CleartextPasswordMessageNegativeLength { length: isize },
-    #[error("CleartextPasswordMessage too large (found {length}, limit {max_length})")]
-    CleartextPasswordMessageTooLarge { length: usize, max_length: usize },
-    #[error("unexpected EOF while reading CleartextPasswordMessage body")]
-    CleartextPasswordMessageIncompleteBody,
     #[error("unterminated password in CleartextPasswordMessage")]
     CleartextPasswordMessageUnterminatedCString,
     #[error("extra bytes found in CleartextPasswordMessage")]
@@ -170,14 +154,6 @@ pub(crate) enum WireFormatError {
     #[error("unknown type byte for MD5PasswordClientResponse: {} (expected R or v)", describe_byte(*type_byte))]
     MD5PasswordClientResponseUnknownTypeByte { type_byte: u8 },
 
-    #[error("unexpected EOF while reading MD5PasswordMessage length")]
-    MD5PasswordMessageIncompleteLength,
-    #[error("found negative length {length} in MD5PasswordMessage")]
-    MD5PasswordMessageNegativeLength { length: isize },
-    #[error("MD5PasswordMessage too large (found {length}, limit {max_length})")]
-    MD5PasswordMessageTooLarge { length: usize, max_length: usize },
-    #[error("unexpected EOF while reading MD5PasswordMessage body")]
-    MD5PasswordMessageIncompleteBody,
     #[error("unterminated password in MD5PasswordMessage")]
     MD5PasswordMessageUnterminatedCString,
     #[error("extra bytes found in MD5PasswordMessage")]
@@ -188,14 +164,6 @@ pub(crate) enum WireFormatError {
     #[error("unknown type byte for BackendStartupResponse: {} (expected K, S, Z, E, or N)", describe_byte(*type_byte))]
     BackendStartupResponseUnknownTypeByte { type_byte: u8 },
 
-    #[error("unexpected EOF while reading BackendKeyData length")]
-    BackendKeyDataIncompleteLength,
-    #[error("found negative length {length} in BackendKeyData")]
-    BackendKeyDataNegativeLength { length: isize },
-    #[error("BackendKeyData too large (found {length}, limit {max_length})")]
-    BackendKeyDataTooLarge { length: usize, max_length: usize },
-    #[error("unexpected EOF while reading BackendKeyData body")]
-    BackendKeyDataIncompleteBody,
     #[error("packet too short for BackendKeyData process_id")]
     BackendKeyDataIncompleteProcessId,
     #[error("secret key must not be empty in BackendKeyData")]
@@ -203,14 +171,6 @@ pub(crate) enum WireFormatError {
     #[error("secret key too long in BackendKeyData (found {length}, limit {max_length})")]
     BackendKeyDataSecretKeyTooLong { length: usize, max_length: usize },
 
-    #[error("unexpected EOF while reading ParameterStatus length")]
-    ParameterStatusIncompleteLength,
-    #[error("found negative length {length} in ParameterStatus")]
-    ParameterStatusNegativeLength { length: isize },
-    #[error("ParameterStatus too large (found {length}, limit {max_length})")]
-    ParameterStatusTooLarge { length: usize, max_length: usize },
-    #[error("unexpected EOF while reading ParameterStatus body")]
-    ParameterStatusIncompleteBody,
     #[error("unterminated parameter name in ParameterStatus")]
     ParameterStatusUnterminatedName,
     #[error("unterminated parameter value in ParameterStatus")]
@@ -218,14 +178,6 @@ pub(crate) enum WireFormatError {
     #[error("extra bytes found in ParameterStatus")]
     ParameterStatusExtraBytes,
 
-    #[error("unexpected EOF while reading ReadyForQuery length")]
-    ReadyForQueryIncompleteLength,
-    #[error("found negative length {length} in ReadyForQuery")]
-    ReadyForQueryNegativeLength { length: isize },
-    #[error("ReadyForQuery too large (found {length}, limit {max_length})")]
-    ReadyForQueryTooLarge { length: usize, max_length: usize },
-    #[error("unexpected EOF while reading ReadyForQuery body")]
-    ReadyForQueryIncompleteBody,
     #[error("packet too short for ReadyForQuery status")]
     ReadyForQueryIncompleteStatus,
     #[error("invalid transaction status in ReadyForQuery: {} (expected I, T, or E)", describe_byte(*status_byte))]
@@ -233,14 +185,6 @@ pub(crate) enum WireFormatError {
     #[error("extra bytes found in ReadyForQuery")]
     ReadyForQueryExtraBytes,
 
-    #[error("unexpected EOF while reading ErrorResponse/NoticeResponse length")]
-    ErrorOrNoticeResponseIncompleteLength,
-    #[error("found negative length {length} in ErrorResponse/NoticeResponse")]
-    ErrorOrNoticeResponseNegativeLength { length: isize },
-    #[error("ErrorResponse/NoticeResponse too large (found {length}, limit {max_length})")]
-    ErrorOrNoticeResponseTooLarge { length: usize, max_length: usize },
-    #[error("unexpected EOF while reading ErrorResponse/NoticeResponse body")]
-    ErrorOrNoticeResponseIncompleteBody,
     #[error("unterminated field list in ErrorResponse/NoticeResponse")]
     ErrorOrNoticeResponseUnterminatedFieldList,
     #[error("unterminated field value in ErrorResponse/NoticeResponse")]
@@ -259,6 +203,48 @@ pub(crate) enum WireFormatError {
     ErrorOrNoticeResponseMissingMessage,
 }
 
+/// Indicates the type of packet that caused a WireFormatError.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum ErrorPacketType {
+    /// Any initial packet (no type byte).
+    InitialRequest,
+    /// NegotiateProtocolVersion (type byte 'v')
+    NegotiateProtocolVersion,
+    /// Any authentication-related packet (type byte 'R')
+    Authentication,
+    /// PasswordMessage (type byte 'p') in the context of
+    /// AuthenticationCleartextPassword
+    CleartextPasswordMessage,
+    /// PasswordMessage (type byte 'p') in the context of
+    /// AuthenticationMD5Password
+    MD5PasswordMessage,
+    /// BackendKeyData (type byte 'K')
+    BackendKeyData,
+    /// ParameterStatus (type byte 'S')
+    ParameterStatus,
+    /// ReadyForQuery (type byte 'Z')
+    ReadyForQuery,
+    /// ErrorResponse (type byte 'E') or NoticeResponse (type byte 'N')
+    ErrorOrNoticeResponse,
+}
+
+impl fmt::Display for ErrorPacketType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let name = match self {
+            ErrorPacketType::InitialRequest => "InitialRequest",
+            ErrorPacketType::NegotiateProtocolVersion => "NegotiateProtocolVersion",
+            ErrorPacketType::Authentication => "Authentication",
+            ErrorPacketType::CleartextPasswordMessage => "CleartextPasswordMessage",
+            ErrorPacketType::MD5PasswordMessage => "MD5PasswordMessage",
+            ErrorPacketType::BackendKeyData => "BackendKeyData",
+            ErrorPacketType::ParameterStatus => "ParameterStatus",
+            ErrorPacketType::ReadyForQuery => "ReadyForQuery",
+            ErrorPacketType::ErrorOrNoticeResponse => "ErrorResponse/NoticeResponse",
+        };
+        write!(f, "{}", name)
+    }
+}
+
 fn describe_byte(byte: u8) -> String {
     match byte {
         b'\'' => "'\\''".to_owned(),
@@ -274,10 +260,8 @@ impl WireFormatError {
             self,
             // Only include errors that indicate EOF in the message stream,
             // not EOF in the message body.
-            WireFormatError::InitialRequestIncompleteLength
-                | WireFormatError::InitialRequestIncompleteBody
-                | WireFormatError::ErrorOrNoticeResponseIncompleteLength
-                | WireFormatError::ErrorOrNoticeResponseIncompleteBody
+            WireFormatError::IncompletePacketLength { .. }
+                | WireFormatError::IncompletePacketBody { .. }
         )
     }
 

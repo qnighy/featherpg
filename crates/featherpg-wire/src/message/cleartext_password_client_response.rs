@@ -4,9 +4,9 @@ use std::{
 };
 
 use crate::{
-    errors::WireFormatError,
+    errors::{ErrorPacketType, WireFormatError},
     message::ImplicitTerminate,
-    message_common::{ReadSizedErrors, ReadWireExt, WriteWireExt},
+    message_common::{ReadWireExt, WriteWireExt},
 };
 
 /// A message sent by the client in response to an AuthenticationCleartextPassword.
@@ -108,16 +108,7 @@ impl CleartextPasswordMessage {
 
         reader.read_sized(
             limits.max_length,
-            ReadSizedErrors {
-                on_incomplete_length: &|| WireFormatError::CleartextPasswordMessageIncompleteLength,
-                on_negative_length: &|length| {
-                    WireFormatError::CleartextPasswordMessageNegativeLength { length }
-                },
-                on_length_limit_exceeded: &|length, max_length| {
-                    WireFormatError::CleartextPasswordMessageTooLarge { length, max_length }
-                },
-                on_incomplete_body: &|| WireFormatError::CleartextPasswordMessageIncompleteBody,
-            },
+            ErrorPacketType::CleartextPasswordMessage,
             |reader| Self::read_body(reader),
         )
     }

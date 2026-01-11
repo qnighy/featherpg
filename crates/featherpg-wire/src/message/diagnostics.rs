@@ -4,8 +4,8 @@ use std::{
 };
 
 use crate::{
-    errors::{DiagnosticMessage, DiagnosticSeverity, WireFormatError},
-    message_common::{ReadSizedErrors, ReadWireExt, WriteWireExt},
+    errors::{DiagnosticMessage, DiagnosticSeverity, ErrorPacketType, WireFormatError},
+    message_common::{ReadWireExt, WriteWireExt},
 };
 
 /// Indicates an error that occurred during processing of a client message.
@@ -226,16 +226,7 @@ where
 {
     reader.read_sized(
         usize::MAX,
-        ReadSizedErrors {
-            on_incomplete_length: &|| WireFormatError::ErrorOrNoticeResponseIncompleteLength,
-            on_negative_length: &|length| WireFormatError::ErrorOrNoticeResponseNegativeLength {
-                length,
-            },
-            on_length_limit_exceeded: &|length, max_length| {
-                WireFormatError::ErrorOrNoticeResponseTooLarge { length, max_length }
-            },
-            on_incomplete_body: &|| WireFormatError::ErrorOrNoticeResponseIncompleteBody,
-        },
+        ErrorPacketType::ErrorOrNoticeResponse,
         |reader| read_diagnostic_body(reader),
     )
 }

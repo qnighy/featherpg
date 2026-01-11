@@ -4,9 +4,9 @@ use std::{
 };
 
 use crate::{
-    errors::WireFormatError,
+    errors::{ErrorPacketType, WireFormatError},
     message::ImplicitTerminate,
-    message_common::{ReadSizedErrors, ReadWireExt, WriteWireExt},
+    message_common::{ReadWireExt, WriteWireExt},
 };
 
 /// A message sent by the client in response to an AuthenticationMD5Password.
@@ -104,16 +104,7 @@ impl MD5PasswordMessage {
 
         reader.read_sized(
             limits.max_length,
-            ReadSizedErrors {
-                on_incomplete_length: &|| WireFormatError::MD5PasswordMessageIncompleteLength,
-                on_negative_length: &|length| WireFormatError::MD5PasswordMessageNegativeLength {
-                    length,
-                },
-                on_length_limit_exceeded: &|length, max_length| {
-                    WireFormatError::MD5PasswordMessageTooLarge { length, max_length }
-                },
-                on_incomplete_body: &|| WireFormatError::MD5PasswordMessageIncompleteBody,
-            },
+            ErrorPacketType::MD5PasswordMessage,
             |reader| Self::read_body(reader),
         )
     }

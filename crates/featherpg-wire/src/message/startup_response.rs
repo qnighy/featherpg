@@ -4,9 +4,9 @@ use std::{
 };
 
 use crate::{
-    errors::WireFormatError,
+    errors::{ErrorPacketType, WireFormatError},
     message::{ErrorResponse, ProtocolVersion},
-    message_common::{ReadSizedErrors, ReadWireExt, WriteWireExt},
+    message_common::{ReadWireExt, WriteWireExt},
 };
 
 /// A response to a StartupMessage, sent by the server.
@@ -198,16 +198,7 @@ impl NegotiateProtocolVersion {
 
         reader.read_sized(
             usize::MAX,
-            ReadSizedErrors {
-                on_incomplete_length: &|| WireFormatError::NegotiateProtocolVersionIncompleteLength,
-                on_negative_length: &|length| {
-                    WireFormatError::NegotiateProtocolVersionNegativeLength { length }
-                },
-                on_length_limit_exceeded: &|length, max_length| {
-                    WireFormatError::NegotiateProtocolVersionTooLarge { length, max_length }
-                },
-                on_incomplete_body: &|| WireFormatError::NegotiateProtocolVersionIncompleteBody,
-            },
+            ErrorPacketType::NegotiateProtocolVersion,
             |reader| Self::read_body(reader),
         )
     }
@@ -245,18 +236,9 @@ where
 {
     assert_eq!(type_byte, AUTH_TYPE_BYTE);
 
-    reader.read_sized(
-        usize::MAX,
-        ReadSizedErrors {
-            on_incomplete_length: &|| WireFormatError::AuthenticationIncompleteLength,
-            on_negative_length: &|length| WireFormatError::AuthenticationNegativeLength { length },
-            on_length_limit_exceeded: &|length, max_length| {
-                WireFormatError::AuthenticationTooLarge { length, max_length }
-            },
-            on_incomplete_body: &|| WireFormatError::AuthenticationIncompleteBody,
-        },
-        |reader| read_authentication_body(reader, type_byte),
-    )
+    reader.read_sized(usize::MAX, ErrorPacketType::Authentication, |reader| {
+        read_authentication_body(reader, type_byte)
+    })
 }
 
 fn read_authentication_body<R>(reader: &mut R, type_byte: u8) -> IoResult<StartupResponse>

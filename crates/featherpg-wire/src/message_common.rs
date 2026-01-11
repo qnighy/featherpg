@@ -3,7 +3,10 @@ use std::{
     io::{BufRead, Error as IoError, ErrorKind as IoErrorKind, Read, Result as IoResult, Write},
 };
 
-use crate::{errors::WireFormatError, message::ProtocolVersion};
+use crate::{
+    errors::{ErrorPacketType, WireFormatError},
+    message::ProtocolVersion,
+};
 
 pub(crate) trait WriteWireExt: Write {
     fn write_bytes(&mut self, bytes: &[u8]) -> IoResult<()> {
@@ -115,51 +118,65 @@ pub(crate) trait ReadWireExt: Read {
         }
         Ok(CString::from_vec_with_nul(all_buf).unwrap())
     }
-    fn read_sized<T, F>(&mut self, limit: usize, on_eof: ReadSizedErrors<'_>, f: F) -> IoResult<T>
+    fn read_sized<T, F>(&mut self, limit: usize, packet_type: ErrorPacketType, f: F) -> IoResult<T>
     where
         F: FnOnce(&mut &[u8]) -> IoResult<T>,
     {
-        let length_plus_4 = self.read_u32(on_eof.on_incomplete_length)? as usize;
-        self.read_sized_after_size(length_plus_4, limit, on_eof, f)
+        let length_plus_4 =
+            self.read_u32(&|| WireFormatError::IncompletePacketLength { packet_type })? as usize;
+        self.read_sized_after_size(length_plus_4, limit, packet_type, f)
     }
     fn read_sized_opt<T, F>(
         &mut self,
         limit: usize,
-        on_eof: ReadSizedErrors<'_>,
+        packet_type: ErrorPacketType,
         f: F,
     ) -> IoResult<Option<T>>
     where
         F: FnOnce(&mut &[u8]) -> IoResult<T>,
     {
-        let Some(length_plus_4) = self.read_u32_opt(on_eof.on_incomplete_length)? else {
+        let Some(length_plus_4) =
+            self.read_u32_opt(&|| WireFormatError::IncompletePacketLength { packet_type })?
+        else {
             return Ok(None);
         };
         let length_plus_4 = length_plus_4 as usize;
-        let result = self.read_sized_after_size(length_plus_4, limit, on_eof, f)?;
+        let result = self.read_sized_after_size(length_plus_4, limit, packet_type, f)?;
         Ok(Some(result))
     }
     fn read_sized_after_size<T, F>(
         &mut self,
         length_plus_4: usize,
         limit: usize,
-        on_eof: ReadSizedErrors<'_>,
+        packet_type: ErrorPacketType,
         f: F,
     ) -> IoResult<T>
     where
         F: FnOnce(&mut &[u8]) -> IoResult<T>,
     {
         if length_plus_4 < 4 {
-            return Err((on_eof.on_negative_length)(length_plus_4 as isize - 4).into());
+            return Err(WireFormatError::NegativePacketLength {
+                packet_type,
+                length: length_plus_4 as isize - 4,
+            }
+            .into());
         }
         let length = length_plus_4 - 4;
         if length > limit {
             // `limit` above may be usize::MAX
 
-            return Err((on_eof.on_length_limit_exceeded)(length, limit).into());
+            return Err(WireFormatError::PacketTooLarge {
+                packet_type,
+                length,
+                max_length: limit,
+            }
+            .into());
         }
 
         let mut buf = vec![0u8; length];
-        self.read_bytes(&mut buf, on_eof.on_incomplete_body)?;
+        self.read_bytes(&mut buf, &|| WireFormatError::IncompletePacketBody {
+            packet_type,
+        })?;
 
         let mut slice: &[u8] = &buf;
         let result = f(&mut slice)?;
@@ -196,15 +213,6 @@ pub(crate) trait ReadWireExt: Read {
 }
 
 impl<T: Read + ?Sized> ReadWireExt for T {}
-
-#[derive(Clone, Copy)]
-pub(crate) struct ReadSizedErrors<'a> {
-    pub(crate) on_incomplete_length: &'a dyn Fn() -> WireFormatError,
-    pub(crate) on_negative_length: &'a dyn Fn(/* length */ isize) -> WireFormatError,
-    pub(crate) on_length_limit_exceeded:
-        &'a dyn Fn(/* length_found */ usize, /* max_length */ usize) -> WireFormatError,
-    pub(crate) on_incomplete_body: &'a dyn Fn() -> WireFormatError,
-}
 
 /// Validates a parameter passed from caller code.
 ///

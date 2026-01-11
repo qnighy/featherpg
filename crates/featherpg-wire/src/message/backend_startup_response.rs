@@ -4,9 +4,9 @@ use std::{
 };
 
 use crate::{
-    errors::WireFormatError,
+    errors::{ErrorPacketType, WireFormatError},
     message::{ErrorResponse, NoticeResponse},
-    message_common::{ReadSizedErrors, ReadWireExt, WriteWireExt},
+    message_common::{ReadWireExt, WriteWireExt},
 };
 
 /// A message sent by the server following AuthenticationOk
@@ -151,20 +151,9 @@ impl BackendKeyData {
     {
         assert_eq!(type_byte, Self::TYPE_BYTE);
 
-        reader.read_sized(
-            usize::MAX,
-            ReadSizedErrors {
-                on_incomplete_length: &|| WireFormatError::BackendKeyDataIncompleteLength,
-                on_negative_length: &|length| WireFormatError::BackendKeyDataNegativeLength {
-                    length,
-                },
-                on_length_limit_exceeded: &|length, max_length| {
-                    WireFormatError::BackendKeyDataTooLarge { length, max_length }
-                },
-                on_incomplete_body: &|| WireFormatError::BackendKeyDataIncompleteBody,
-            },
-            |reader| Self::read_body(reader),
-        )
+        reader.read_sized(usize::MAX, ErrorPacketType::BackendKeyData, |reader| {
+            Self::read_body(reader)
+        })
     }
 
     fn read_body<R>(reader: &mut R) -> IoResult<Self>
@@ -226,20 +215,9 @@ impl ParameterStatus {
     {
         assert_eq!(type_byte, Self::TYPE_BYTE);
 
-        reader.read_sized(
-            usize::MAX,
-            ReadSizedErrors {
-                on_incomplete_length: &|| WireFormatError::ParameterStatusIncompleteLength,
-                on_negative_length: &|length| WireFormatError::ParameterStatusNegativeLength {
-                    length,
-                },
-                on_length_limit_exceeded: &|length, max_length| {
-                    WireFormatError::ParameterStatusTooLarge { length, max_length }
-                },
-                on_incomplete_body: &|| WireFormatError::ParameterStatusIncompleteBody,
-            },
-            |reader| Self::read_body(reader),
-        )
+        reader.read_sized(usize::MAX, ErrorPacketType::ParameterStatus, |reader| {
+            Self::read_body(reader)
+        })
     }
 
     fn read_body<R>(reader: &mut R) -> IoResult<Self>
@@ -287,20 +265,9 @@ impl ReadyForQuery {
     {
         assert_eq!(type_byte, Self::TYPE_BYTE);
 
-        reader.read_sized(
-            usize::MAX,
-            ReadSizedErrors {
-                on_incomplete_length: &|| WireFormatError::ReadyForQueryIncompleteLength,
-                on_negative_length: &|length| WireFormatError::ReadyForQueryNegativeLength {
-                    length,
-                },
-                on_length_limit_exceeded: &|length, max_length| {
-                    WireFormatError::ReadyForQueryTooLarge { length, max_length }
-                },
-                on_incomplete_body: &|| WireFormatError::ReadyForQueryIncompleteBody,
-            },
-            |reader| Self::read_body(reader),
-        )
+        reader.read_sized(usize::MAX, ErrorPacketType::ReadyForQuery, |reader| {
+            Self::read_body(reader)
+        })
     }
 
     fn read_body<R>(reader: &mut R) -> IoResult<Self>

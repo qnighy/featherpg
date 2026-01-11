@@ -4,9 +4,9 @@ use std::{
 };
 
 use crate::{
-    errors::WireFormatError,
+    errors::{ErrorPacketType, WireFormatError},
     message::{ImplicitTerminate, ProtocolVersion},
-    message_common::{ReadSizedErrors, ReadWireExt, WriteWireExt, assert_param},
+    message_common::{ReadWireExt, WriteWireExt, assert_param},
 };
 
 /// A message sent by the client as the first message on a new connection.
@@ -114,16 +114,7 @@ impl InitialRequest {
     {
         let result = reader.read_sized_opt(
             limits.max_length,
-            ReadSizedErrors {
-                on_incomplete_length: &|| WireFormatError::InitialRequestIncompleteLength,
-                on_negative_length: &|length| WireFormatError::InitialRequestNegativeLength {
-                    length,
-                },
-                on_length_limit_exceeded: &|length, max_length| {
-                    WireFormatError::InitialRequestTooLarge { length, max_length }
-                },
-                on_incomplete_body: &|| WireFormatError::InitialRequestIncompleteBody,
-            },
+            ErrorPacketType::InitialRequest,
             |reader| Self::read_body_from(reader),
         )?;
         if let Some(msg) = result {
