@@ -116,7 +116,7 @@ impl MD5PasswordMessage {
         let password =
             reader.read_cstring(&|| WireFormatError::MD5PasswordMessageUnterminatedCString)?;
 
-        reader.read_eof(&|| WireFormatError::MD5PasswordMessageExtraBytes)?;
+        reader.read_eof(ErrorPacketType::MD5PasswordMessage)?;
 
         Ok(MD5PasswordMessage { password })
     }

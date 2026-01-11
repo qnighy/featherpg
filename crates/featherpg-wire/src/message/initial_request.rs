@@ -331,7 +331,7 @@ impl StartupMessage {
             }
         }
 
-        reader.read_eof(&|| WireFormatError::StartupMessageExtraBytes)?;
+        reader.read_eof(ErrorPacketType::StartupMessage)?;
 
         if user_name.as_ref().is_some_and(|s| s.is_empty()) {
             user_name = None;
@@ -387,7 +387,7 @@ impl SSLRequest {
 
         // Subtle difference from PostgreSQL:
         // PostgreSQL does not check EOF here, but we do.
-        reader.read_eof(&|| WireFormatError::SSLRequestExtraBytes)?;
+        reader.read_eof(ErrorPacketType::SSLRequest)?;
 
         Ok(SSLRequest)
     }
@@ -432,7 +432,7 @@ impl GSSENCRequest {
 
         // Subtle difference from PostgreSQL:
         // PostgreSQL does not check EOF here, but we do.
-        reader.read_eof(&|| WireFormatError::GSSENCRequestExtraBytes)?;
+        reader.read_eof(ErrorPacketType::GSSENCRequest)?;
 
         Ok(GSSENCRequest)
     }

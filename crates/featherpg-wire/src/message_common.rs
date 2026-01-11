@@ -190,12 +190,12 @@ pub(crate) trait ReadWireExt: Read {
         Ok(buf)
     }
 
-    fn read_eof(&mut self, on_extra_bytes: &dyn Fn() -> WireFormatError) -> IoResult<()>
+    fn read_eof(&mut self, packet_type: ErrorPacketType) -> IoResult<()>
     where
         Self: BufRead,
     {
         if !self.read_is_eof()? {
-            return Err(on_extra_bytes().into());
+            return Err(WireFormatError::ExtraBytesFound { packet_type }.into());
         }
         Ok(())
     }

@@ -74,6 +74,9 @@ pub(crate) enum WireFormatError {
     #[error("unexpected EOF while reading {packet_type} body")]
     IncompletePacketBody { packet_type: ErrorPacketType },
 
+    #[error("extra bytes found in {packet_type}")]
+    ExtraBytesFound { packet_type: ErrorPacketType },
+
     #[error("packet too short for InitialRequest version")]
     InitialRequestIncompleteVersion,
 
@@ -87,16 +90,8 @@ pub(crate) enum WireFormatError {
     StartupMessageUnterminatedOptionValue,
     #[error("invalid value for parameter \"replication\": \"{}\"", value.to_string_lossy())]
     StartupMessageInvalidReplicationParameter { value: CString },
-    #[error("extra bytes found in StartupMessage")]
-    StartupMessageExtraBytes,
     #[error("missing or empty user option in StartupMessage")]
     StartupMessageMissingUserName,
-
-    #[error("extra bytes found in SSLRequest")]
-    SSLRequestExtraBytes,
-
-    #[error("extra bytes found in GSSENCRequest")]
-    GSSENCRequestExtraBytes,
 
     #[error("packet too short for CancelRequest process_id")]
     CancelRequestIncompleteProcessId,
@@ -126,38 +121,22 @@ pub(crate) enum WireFormatError {
     #[error("unknown authentication type: {auth_type} (expected 0, 3, 5, 7, 8, 9, 10, 11, or 12)")]
     AuthenticationUnknownType { auth_type: u32 },
 
-    #[error("extra bytes found in AuthenticationOk")]
-    AuthenticationOkExtraBytes,
-    #[error("extra bytes found in AuthenticationCleartextPassword")]
-    AuthenticationCleartextPasswordExtraBytes,
     #[error("packet too short for AuthenticationMD5Password salt")]
     AuthenticationMD5PasswordIncompleteSalt,
-    #[error("extra bytes found in AuthenticationMD5Password")]
-    AuthenticationMD5PasswordExtraBytes,
-    #[error("extra bytes found in AuthenticationGSS")]
-    AuthenticationGSSExtraBytes,
-    #[error("extra bytes found in AuthenticationSSPI")]
-    AuthenticationSSPIExtraBytes,
     #[error("unterminated authentication mechanism name in AuthenticationSASL")]
     AuthenticationSASLUnterminatedAuthenticationMechanismName,
-    #[error("extra bytes found in AuthenticationSASL")]
-    AuthenticationSASLExtraBytes,
 
     #[error("unknown type byte for CleartextPasswordClientResponse: {} (expected R or v)", describe_byte(*type_byte))]
     CleartextPasswordClientResponseUnknownTypeByte { type_byte: u8 },
 
     #[error("unterminated password in CleartextPasswordMessage")]
     CleartextPasswordMessageUnterminatedCString,
-    #[error("extra bytes found in CleartextPasswordMessage")]
-    CleartextPasswordMessageExtraBytes,
 
     #[error("unknown type byte for MD5PasswordClientResponse: {} (expected R or v)", describe_byte(*type_byte))]
     MD5PasswordClientResponseUnknownTypeByte { type_byte: u8 },
 
     #[error("unterminated password in MD5PasswordMessage")]
     MD5PasswordMessageUnterminatedCString,
-    #[error("extra bytes found in MD5PasswordMessage")]
-    MD5PasswordMessageExtraBytes,
 
     #[error("server connection closed before BackendStartupResponse")]
     BackendStartupResponseMissingTypeByte,
@@ -175,15 +154,11 @@ pub(crate) enum WireFormatError {
     ParameterStatusUnterminatedName,
     #[error("unterminated parameter value in ParameterStatus")]
     ParameterStatusUnterminatedValue,
-    #[error("extra bytes found in ParameterStatus")]
-    ParameterStatusExtraBytes,
 
     #[error("packet too short for ReadyForQuery status")]
     ReadyForQueryIncompleteStatus,
     #[error("invalid transaction status in ReadyForQuery: {} (expected I, T, or E)", describe_byte(*status_byte))]
     ReadyForQueryInvalidStatus { status_byte: u8 },
-    #[error("extra bytes found in ReadyForQuery")]
-    ReadyForQueryExtraBytes,
 
     #[error("unterminated field list in ErrorResponse/NoticeResponse")]
     ErrorOrNoticeResponseUnterminatedFieldList,
@@ -204,14 +179,36 @@ pub(crate) enum WireFormatError {
 }
 
 /// Indicates the type of packet that caused a WireFormatError.
+///
+/// Note that they are not necessarily mutually exclusive.
+/// Instead, they indicate the most specific information available about
+/// the packet being processed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum ErrorPacketType {
     /// Any initial packet (no type byte).
     InitialRequest,
+    /// StartupMessage (no type byte, ordinary version number)
+    StartupMessage,
+    /// SSLRequest (no type byte, version 1234.5679)
+    SSLRequest,
+    /// GSSENCRequest (no type byte, version 1234.5680)
+    GSSENCRequest,
     /// NegotiateProtocolVersion (type byte 'v')
     NegotiateProtocolVersion,
     /// Any authentication-related packet (type byte 'R')
     Authentication,
+    /// AuthenticationOk (type byte 'R', auth type 0)
+    AuthenticationOk,
+    /// AuthenticationCleartextPassword (type byte 'R', auth type 3)
+    AuthenticationCleartextPassword,
+    /// AuthenticationMD5Password (type byte 'R', auth type 5)
+    AuthenticationMD5Password,
+    /// AuthenticationGSS (type byte 'R', auth type 7)
+    AuthenticationGSS,
+    /// AuthenticationGSSFinal (type byte 'R', auth type 9)
+    AuthenticationSSPI,
+    /// AuthenticationSASL (type byte 'R', auth type 10)
+    AuthenticationSASL,
     /// PasswordMessage (type byte 'p') in the context of
     /// AuthenticationCleartextPassword
     CleartextPasswordMessage,
@@ -232,8 +229,17 @@ impl fmt::Display for ErrorPacketType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let name = match self {
             ErrorPacketType::InitialRequest => "InitialRequest",
+            ErrorPacketType::StartupMessage => "StartupMessage",
+            ErrorPacketType::SSLRequest => "SSLRequest",
+            ErrorPacketType::GSSENCRequest => "GSSENCRequest",
             ErrorPacketType::NegotiateProtocolVersion => "NegotiateProtocolVersion",
             ErrorPacketType::Authentication => "Authentication",
+            ErrorPacketType::AuthenticationOk => "AuthenticationOk",
+            ErrorPacketType::AuthenticationCleartextPassword => "AuthenticationCleartextPassword",
+            ErrorPacketType::AuthenticationMD5Password => "AuthenticationMD5Password",
+            ErrorPacketType::AuthenticationGSS => "AuthenticationGSS",
+            ErrorPacketType::AuthenticationSSPI => "AuthenticationSSPI",
+            ErrorPacketType::AuthenticationSASL => "AuthenticationSASL",
             ErrorPacketType::CleartextPasswordMessage => "CleartextPasswordMessage",
             ErrorPacketType::MD5PasswordMessage => "MD5PasswordMessage",
             ErrorPacketType::BackendKeyData => "BackendKeyData",

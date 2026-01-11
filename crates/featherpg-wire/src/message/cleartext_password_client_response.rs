@@ -120,7 +120,7 @@ impl CleartextPasswordMessage {
         let password = reader
             .read_cstring(&|| WireFormatError::CleartextPasswordMessageUnterminatedCString)?;
 
-        reader.read_eof(&|| WireFormatError::CleartextPasswordMessageExtraBytes)?;
+        reader.read_eof(ErrorPacketType::CleartextPasswordMessage)?;
 
         Ok(CleartextPasswordMessage { password })
     }

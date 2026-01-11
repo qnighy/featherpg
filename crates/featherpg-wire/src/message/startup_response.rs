@@ -315,7 +315,7 @@ impl AuthenticationOk {
     {
         assert_eq!(type_byte, Self::TYPE_BYTE);
         assert_eq!(auth_type, Self::AUTH_TYPE);
-        reader.read_eof(&|| WireFormatError::AuthenticationOkExtraBytes)?;
+        reader.read_eof(ErrorPacketType::AuthenticationOk)?;
         Ok(AuthenticationOk)
     }
 }
@@ -352,7 +352,7 @@ impl AuthenticationCleartextPassword {
     {
         assert_eq!(type_byte, Self::TYPE_BYTE);
         assert_eq!(auth_type, Self::AUTH_TYPE);
-        reader.read_eof(&|| WireFormatError::AuthenticationCleartextPasswordExtraBytes)?;
+        reader.read_eof(ErrorPacketType::AuthenticationCleartextPassword)?;
         Ok(AuthenticationCleartextPassword)
     }
 }
@@ -396,7 +396,7 @@ impl AuthenticationMD5Password {
         reader.read_bytes(&mut salt, &|| {
             WireFormatError::AuthenticationMD5PasswordIncompleteSalt
         })?;
-        reader.read_eof(&|| WireFormatError::AuthenticationMD5PasswordExtraBytes)?;
+        reader.read_eof(ErrorPacketType::AuthenticationMD5Password)?;
         Ok(AuthenticationMD5Password { salt })
     }
 }
@@ -433,7 +433,7 @@ impl AuthenticationGSS {
     {
         assert_eq!(type_byte, Self::TYPE_BYTE);
         assert_eq!(auth_type, Self::AUTH_TYPE);
-        reader.read_eof(&|| WireFormatError::AuthenticationGSSExtraBytes)?;
+        reader.read_eof(ErrorPacketType::AuthenticationGSS)?;
         Ok(AuthenticationGSS)
     }
 }
@@ -510,7 +510,7 @@ impl AuthenticationSSPI {
     {
         assert_eq!(type_byte, Self::TYPE_BYTE);
         assert_eq!(auth_type, Self::AUTH_TYPE);
-        reader.read_eof(&|| WireFormatError::AuthenticationSSPIExtraBytes)?;
+        reader.read_eof(ErrorPacketType::AuthenticationSSPI)?;
         Ok(AuthenticationSSPI)
     }
 }
@@ -564,7 +564,7 @@ impl AuthenticationSASL {
             }
             mechanisms.push(mechanism);
         }
-        reader.read_eof(&|| WireFormatError::AuthenticationSASLExtraBytes)?;
+        reader.read_eof(ErrorPacketType::AuthenticationSASL)?;
         Ok(AuthenticationSASL { mechanisms })
     }
 }

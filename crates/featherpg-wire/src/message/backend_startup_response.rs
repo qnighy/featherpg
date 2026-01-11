@@ -226,7 +226,7 @@ impl ParameterStatus {
     {
         let name = reader.read_cstring(&|| WireFormatError::ParameterStatusUnterminatedName)?;
         let value = reader.read_cstring(&|| WireFormatError::ParameterStatusUnterminatedValue)?;
-        reader.read_eof(&|| WireFormatError::ParameterStatusExtraBytes)?;
+        reader.read_eof(ErrorPacketType::ParameterStatus)?;
         Ok(ParameterStatus { name, value })
     }
 }
@@ -277,7 +277,7 @@ impl ReadyForQuery {
         let status_byte = reader.read_u8(&|| WireFormatError::ReadyForQueryIncompleteStatus)?;
         let status = TransactionStatus::from_byte(status_byte)
             .ok_or_else(|| WireFormatError::ReadyForQueryInvalidStatus { status_byte })?;
-        reader.read_eof(&|| WireFormatError::ReadyForQueryExtraBytes)?;
+        reader.read_eof(ErrorPacketType::ReadyForQuery)?;
         Ok(ReadyForQuery { status })
     }
 }
